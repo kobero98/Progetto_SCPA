@@ -1,0 +1,1 @@
+1) In questa versione preliminare, sia in MPI che in Cuda la mesh è stata applicata esclusivamente alla matrice C e non alle altre due (tant'è vero che in Cuda neanche mi sono trovato a usare la shared memory). Sicuramente questo va migliorato.
