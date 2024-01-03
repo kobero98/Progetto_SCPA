@@ -1,17 +1,1 @@
-cmake_minimum_required(VERSION 2.8)
-project(SCPA)
-
-set (CC 75)
-
-find_package(CUDA REQUIRED)
-include_directories(${CUDA_INCLUDE_DIRS})
-include_directories(${CUDA_TOOLKIT_ROOT_DIR}/samples/common/)
-include_directories(/home/mfederico/Progetto_SCPA/fanfa-tmp/project-base)
-
-set(CMAKE_CXX_FLAGS "-O3")
-set(CUDA_PROPAGATE_HOST_FLAGS OFF)
-set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS};-DSM_${CC};-arch=sm_${CC};-lineinfo;-Xcompiler=${CMAKE_CXX_FLAGS};-Xptxas=-v)
-cuda_add_executable(
-	SCPA
-	01-matrix_matrix.cu
-)
+cuda_add_executable( matrix_matrix 01-matrix_matrix.cu)
