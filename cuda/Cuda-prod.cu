@@ -71,8 +71,10 @@ int main(int argc, char **argv) {
     int col;
     int idx;    //matrix index (= row*ncols + col)
 
-    if(argc < 4)
+    if(argc < 4) {
         fprintf(stderr, "Usage: %s m k n\n", argv[0]);
+        return -1;
+    }
 
     int m = atoi(argv[1]);
     int k = atoi(argv[2]);
