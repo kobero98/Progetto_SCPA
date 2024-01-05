@@ -61,6 +61,6 @@ gpus=`echo $CUDA_VISIBLE_DEVICES|awk -F"," '{print NF}'`
 ## Put correct parameters in mpirun execution line
 ## below:
 ##
-project-base/./matrix_matrix
+./Cuda-prod.cu
 
 /bin/rm -f $PBS_JOBID
