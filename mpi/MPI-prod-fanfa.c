@@ -3,23 +3,23 @@
 #include <string.h>
 #include "mpi.h"
 
-#define L 3 //#rows of matrix B and #columns of matrix A
-#define M 4 //#columns of matrixes B, C
-#define N 5 //#rows of matrixes A, C
+#define K 3 //#rows of matrix B and #columns of matrix A
+#define N 4 //#columns of matrixes B, C
+#define M 5 //#rows of matrixes A, C
 #define DIMS 2  //number of dimensions of a matrix
-#define NO (0)
+#define NO 0
 #define YES NO+1
 #define DEBUG
 
 int main(int argc, char **argv) {
     //informazioni che il processo 0 deve inviare agli altri processi
-    int big_l;  //L
-    int big_m;  //M
+    int big_k;  //K
     int big_n;  //N
+    int big_m;  //M
     //matrici complete
-    float total_A[N][L];
-    float total_B[L][M];
-    float total_C[N][M];
+    float total_A[M][K];
+    float total_B[K][N];
+    float total_C[M][N];
     //porzioni locali delle matrici
     float *local_A;
     float *local_B;
@@ -31,10 +31,10 @@ int main(int argc, char **argv) {
     MPI_Comm comm_world_copy;   //copia del comunicatore MPI_COMM_WORLD (è sempre buona norma averla)
     MPI_Comm comm_cart;         //nuovo comunicatore relativo alla griglia di processi da associare alla matrice C
     //variabili utili per suddividere il lavoro dei processi
-    int n;                      //numero di righe per la sottomatrice (di C) da assegnare a ciascun processo
-    int m;                      //numero di colonne per la sottomatrice (di C) da assegnare a ciascun processo
+    int m;                      //numero di righe per la sottomatrice (di C) da assegnare a ciascun processo
+    int n;                      //numero di colonne per la sottomatrice (di C) da assegnare a ciascun processo
     int proc_dims[DIMS];        //array che indica il numero di processi che va a finire in ciascuna dimensione della matrice C (--> la mesh coinvolgerà la matrice C)
-    int proc_dims_hat[DIMS];    //array che indica il numero di righe e colonne che, nella mesh di processi, sono composte da una riga/colonmna di C in più (le entry sono risp. N%n, M%m)
+    int proc_dims_hat[DIMS];    //array che indica il numero di righe e colonne che, nella mesh di processi, sono composte da una riga/colonmna di C in più (le entry sono risp. M%m, N%n)
     //variabili di appoggio
     int periods[DIMS];          //array che indica se ciascuna dimensione della matrice deve essere periodica (i.e. circolare) o meno
     int mesh_row_index;         //variabile che tiene traccia dell'indice riga all'interno della mesh di processi
@@ -44,7 +44,7 @@ int main(int argc, char **argv) {
     //indici ciclo for
     int i;
     int j;
-    int k;
+    int l;
 
     MPI_Init(&argc, &argv);
     MPI_Comm_dup(MPI_COMM_WORLD, &comm_world_copy); //duplicazione del comunicatore MPI_COMM_WORLD
@@ -174,15 +174,15 @@ int main(int argc, char **argv) {
     //mentre la prima entry di col_comms contenga il comunicatore relativo ai rappresentanti delle righe della mesh.
 
 
-    //si assume che solo il processo 0 inizialmente conosca i valori di L, M, N e le tre matrici.
+    //si assume che solo il processo 0 inizialmente conosca i valori di K, N, M e le tre matrici.
     if(my_rank == 0) {
-        big_l = L;
-        big_m = M;
+        big_k = K;
         big_n = N;
+        big_m = M;
 
         //inizializzazione randomica delle matrici
-        for(i=0; i<big_n; i++) {    //matrice A
-            for(j=0; j<big_l; j++) {
+        for(i=0; i<big_m; i++) {    //matrice A
+            for(j=0; j<big_k; j++) {
                 total_A[i][j] = rand() % 10;
 
                 #ifdef DEBUG
@@ -192,8 +192,8 @@ int main(int argc, char **argv) {
             }
 
         }
-        for(i=0; i<big_l; i++) {    //matrice B
-            for(j=0; j<big_m; j++) {
+        for(i=0; i<big_k; i++) {    //matrice B
+            for(j=0; j<big_n; j++) {
                 total_B[i][j] = rand() % 10;
 
                 #ifdef DEBUG
@@ -203,8 +203,8 @@ int main(int argc, char **argv) {
             }
 
         }
-        for(i=0; i<big_n; i++) {    //matrice C
-            for(j=0; j<big_m; j++) {
+        for(i=0; i<big_m; i++) {    //matrice C
+            for(j=0; j<big_n; j++) {
                 total_C[i][j] = rand() % 10;
 
                 #ifdef DEBUG
@@ -218,17 +218,17 @@ int main(int argc, char **argv) {
     }
 
     //invio dei messaggi a tutti gli altri processi da parte del processo 0
-    MPI_Bcast(&big_l, 1, MPI_INT, 0, comm_world_copy);
-    MPI_Bcast(&big_m, 1, MPI_INT, 0, comm_world_copy);
+    MPI_Bcast(&big_k, 1, MPI_INT, 0, comm_world_copy);
     MPI_Bcast(&big_n, 1, MPI_INT, 0, comm_world_copy);
+    MPI_Bcast(&big_m, 1, MPI_INT, 0, comm_world_copy);
 
     //calcolo delle dimensioni di base delle sottomatrici (di C) da assegnare a ciascun processo
-    n = big_n/proc_dims[0];
-    m = big_m/proc_dims[1];
+    m = big_m/proc_dims[0];
+    n = big_n/proc_dims[1];
 
     //calcolo del numero di righe e di colonne che, nella mesh di processi, sono composte da una riga/colonna di matrice in più
-    proc_dims_hat[0] = big_n - n*proc_dims[0];
-    proc_dims_hat[1] = big_m - m*proc_dims[1];
+    proc_dims_hat[0] = big_m - m*proc_dims[0];
+    proc_dims_hat[1] = big_n - n*proc_dims[1];
 
 
     //array con numero righe, numero colonne, spiazzamento righe e spiazzamento colonne della sottomatrice di ciascun processo
@@ -269,26 +269,26 @@ int main(int argc, char **argv) {
     for(i=0; i<p; i++) {
         //riga base + num righe
         if(all_cart_coords[i][0] < proc_dims_hat[0] && i%proc_dims[0] == 0) {    //caso in cui il processo i prende una riga di C in più
-            row_displs[mesh_row_index] = all_cart_coords[i][0]*(n+1);
-            row_sizes[mesh_row_index] = n+1;
+            row_displs[mesh_row_index] = all_cart_coords[i][0]*(m+1);
+            row_sizes[mesh_row_index] = m+1;
             mesh_row_index++;
 
         } else if(all_cart_coords[i][0] >= proc_dims_hat[0] && i%proc_dims[0] == 0) {
-            row_displs[mesh_row_index] = proc_dims_hat[0]*(n+1) + (all_cart_coords[i][0]-proc_dims_hat[0])*n;
-            row_sizes[mesh_row_index] = n;
+            row_displs[mesh_row_index] = proc_dims_hat[0]*(m+1) + (all_cart_coords[i][0]-proc_dims_hat[0])*m;
+            row_sizes[mesh_row_index] = m;
             mesh_row_index++;
         
         }
             
         //colonna base + num colonne
         if(all_cart_coords[i][1] < proc_dims_hat[1] && i < proc_dims[1]) {   //caso in cui il processo i prende una colonna di C in più
-            col_displs[mesh_col_index] = all_cart_coords[i][1]*(m+1);
-            col_sizes[mesh_col_index] = m+1;
+            col_displs[mesh_col_index] = all_cart_coords[i][1]*(n+1);
+            col_sizes[mesh_col_index] = n+1;
             mesh_col_index++;
         
         } else if(all_cart_coords[i][1] >= proc_dims_hat[1] && i < proc_dims[1]) {
-            col_displs[mesh_col_index] = proc_dims_hat[1]*(m+1) + (all_cart_coords[i][1]-proc_dims_hat[1])*m;
-            col_sizes[mesh_col_index] = m;
+            col_displs[mesh_col_index] = proc_dims_hat[1]*(n+1) + (all_cart_coords[i][1]-proc_dims_hat[1])*n;
+            col_sizes[mesh_col_index] = n;
             mesh_col_index++;
 
         }    
@@ -301,10 +301,10 @@ int main(int argc, char **argv) {
 
 
     //allocazione della porzione locale delle tre matrici e di intermediate_C
-    local_A = (float *)malloc(row_sizes[my_mesh_row]*big_l*sizeof(float));
-    local_B = (float *)malloc(big_l*col_sizes[my_mesh_col]*sizeof(float));
+    local_A = (float *)malloc(row_sizes[my_mesh_row]*big_k*sizeof(float));
+    local_B = (float *)malloc(big_k*col_sizes[my_mesh_col]*sizeof(float));
     local_C = (float *)malloc(row_sizes[my_mesh_row]*col_sizes[my_mesh_col]*sizeof(float));
-    intermediate_C = (float *)malloc(row_sizes[my_mesh_row]*big_m*sizeof(float));
+    intermediate_C = (float *)malloc(row_sizes[my_mesh_row]*big_n*sizeof(float));
     if(!(local_A && local_B && local_C && intermediate_C)) {
         printf("Unable to allocate local_A, local_B, local_C and intermediate_C.\n");
         MPI_Abort(comm_world_copy, EXIT_FAILURE);
@@ -312,26 +312,26 @@ int main(int argc, char **argv) {
     }
 
     //azzeramento esplicito di local_A, local_B, local_C e intermediate_C
-    memset(local_A, 0, row_sizes[my_mesh_row]*big_l*sizeof(float));
-    memset(local_B, 0, big_l*col_sizes[my_mesh_col]*sizeof(float));
+    memset(local_A, 0, row_sizes[my_mesh_row]*big_k*sizeof(float));
+    memset(local_B, 0, big_k*col_sizes[my_mesh_col]*sizeof(float));
     memset(local_C, 0, row_sizes[my_mesh_row]*col_sizes[my_mesh_col]*sizeof(float));
-    memset(intermediate_C, 0, row_sizes[my_mesh_row]*big_m*sizeof(float));
+    memset(intermediate_C, 0, row_sizes[my_mesh_row]*big_n*sizeof(float));
 
     
     //il processo 0 invia al rappresentante di ciascuna riga di mesh l'intera matrice B e l'intera matrice C
     if(col_comms[0] != MPI_COMM_NULL) { //check su se il processo appartiene effettivamente al comunicatore col_comms[0]
-        MPI_Bcast(total_B, big_l*big_m, MPI_INT, 0, col_comms[0]);
-        MPI_Bcast(total_C, big_n*big_m, MPI_INT, 0, col_comms[0]);
+        MPI_Bcast(total_B, big_k*big_n, MPI_INT, 0, col_comms[0]);
+        MPI_Bcast(total_C, big_m*big_n, MPI_INT, 0, col_comms[0]);
     
     }
     //il processo 0 invia al rappresentante di ciascuna colonna di mesh l'intera matrice A
     if(row_comms[0] != MPI_COMM_NULL) { //check su se il processo appartiene effettivamente al comunicatore row_comms[0]
-        MPI_Bcast(total_A, big_n*big_l, MPI_INT, 0, row_comms[0]);
+        MPI_Bcast(total_A, big_m*big_k, MPI_INT, 0, row_comms[0]);
 
     }
 
     //split della matrice C tra tutti i processi
-    for(i=0; i<big_n; i++) { //nel caso della mesh deve essere distribuita una riga per volta.
+    for(i=0; i<big_m; i++) { //nel caso della mesh deve essere distribuita una riga per volta.
         //calcolo del comunicatore (i.e. dell'insieme di processi) a cui deve essere distribuita la riga i-esima
         for(j=0; j<proc_dims[0]; j++) {
             if(i >= row_displs[j] && (j == proc_dims[0]-1 || i < row_displs[j+1])) { //la riga esatta della matrice deve appartenere al range di indici della corrispettiva riga di mesh.
@@ -350,8 +350,8 @@ int main(int argc, char **argv) {
     //split della matrice A tra tutti i processi
     //per far ciò, prima si inizializzano gli array block_sizes_A e block_displs_A.
     for(i=0; i<proc_dims[0]; i++) {
-        block_sizes_A[i] = row_sizes[i]*big_l;
-        block_displs_A[i] = row_displs[i]*big_l;
+        block_sizes_A[i] = row_sizes[i]*big_k;
+        block_displs_A[i] = row_displs[i]*big_k;
 
     }
     for(i=0; i<proc_dims[1]; i++) { //una Scatterv() per ogni sotto-comunicatore (i.e. per ogni colonna di mesh)
@@ -361,7 +361,7 @@ int main(int argc, char **argv) {
     }
 
     //split della matrice B tra tutti i processi
-    for(i=0; i<big_l; i++) {    //anche una matrice da suddividere vericalmente deve essere distribuita una riga per volta
+    for(i=0; i<big_k; i++) {    //anche una matrice da suddividere vericalmente deve essere distribuita una riga per volta
         for(j=0; j<proc_dims[0]; j++) { //una Scatterv() per ogni sotto-comunicatore (i.e. per ogni riga di mesh)
             if(row_comms[j] != MPI_COMM_NULL)   //check su se il processo appartiene effettivamente al comunicatore row_comms[j]
                 MPI_Scatterv(total_B[i], col_sizes, col_displs, MPI_INT, &local_B[i*col_sizes[my_mesh_col]], col_sizes[my_mesh_col], MPI_INT, 0, row_comms[j]);
@@ -373,8 +373,8 @@ int main(int argc, char **argv) {
     //calcolo dei risultati parziali di C <-- A*B + C
     for(i=0; i<row_sizes[my_mesh_row]; i++) {
         for(j=0; j<col_sizes[my_mesh_col]; j++) {
-            for(k=0; k<big_l; k++) {
-                local_C[i*col_sizes[my_mesh_col]+j] += local_A[i*big_l+k]*local_B[k*col_sizes[my_mesh_col]+j];
+            for(l=0; l<big_k; l++) {
+                local_C[i*col_sizes[my_mesh_col]+j] += local_A[i*big_k+l]*local_B[l*col_sizes[my_mesh_col]+j];
 
             }
 
@@ -386,7 +386,7 @@ int main(int argc, char **argv) {
     for(i=0; i<proc_dims[0]; i++) {
         for(j=0; j<row_sizes[i]; j++) {
             if(row_comms[i] != MPI_COMM_NULL)   //check su se il processo appartiene effettivamente al comunicatore row_comms[i]
-                MPI_Gatherv(&local_C[j*col_sizes[my_mesh_col]], col_sizes[my_mesh_col], MPI_INT, &intermediate_C[j*big_m], col_sizes, col_displs, MPI_INT, 0, row_comms[i]);
+                MPI_Gatherv(&local_C[j*col_sizes[my_mesh_col]], col_sizes[my_mesh_col], MPI_INT, &intermediate_C[j*big_n], col_sizes, col_displs, MPI_INT, 0, row_comms[i]);
 
         }
     
@@ -395,8 +395,8 @@ int main(int argc, char **argv) {
     //a questo punto si mettono insieme i risultati parziali per ottenere il risultato finale dato da C <-- A*B + C
     //per far ciò, prima si inizializzano gli array block_sizes_C e block_displs_C.
     for(i=0; i<proc_dims[0]; i++) {
-        block_sizes_C[i] = row_sizes[i]*big_m;
-        block_displs_C[i] = row_displs[i]*big_m;
+        block_sizes_C[i] = row_sizes[i]*big_n;
+        block_displs_C[i] = row_displs[i]*big_n;
 
     }
     if(col_comms[0] != MPI_COMM_NULL)    //check su se il processo appartiene effettivamente al comunicatore col_comms[0]
@@ -405,8 +405,8 @@ int main(int argc, char **argv) {
     //stampa del risultato finale
     if(my_rank == 0) {
         printf("RESULT:\n");
-        for(i=0; i<big_n; i++) {
-            for(j=0; j<big_m; j++) {
+        for(i=0; i<big_m; i++) {
+            for(j=0; j<big_n; j++) {
                 printf("C[%d][%d] = %f\n", i, j, total_C[i][j]);
 
             }
