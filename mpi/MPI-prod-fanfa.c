@@ -11,134 +11,6 @@
 #define YES NO+1
 #define DEBUG
 
-
-
-void create_comms(int p, int proc_dims[], MPI_Comm comm_world_copy, MPI_Comm **row_comms_ptr, MPI_Comm **col_comms_ptr, int ***all_cart_coords_ptr) {
-    MPI_Comm comm_cart; //nuovo comunicatore relativo alla griglia di processi da associare alla matrice C
-    int periods[DIMS];  //array che indica se ciascuna dimensione della matrice deve essere periodica (i.e. circolare) o meno
-    int i;  //indice ciclo for
-
-    //inizializzazione di periods a soli false + inizializzazione di proc_dims a soli 0
-    for(i=0; i<DIMS; i++) {
-        periods[i] = NO;
-        proc_dims[i] = 0;   //proc_dims[0] = #righe della mesh di processi; proc_dims[1] = #colonne della mesh di processi
-
-    }
-
-    //definizione (e successiva creazione) della topologia più quadrata possibile per i p processi
-    MPI_Dims_create(p, DIMS, proc_dims);
-    MPI_Cart_create(comm_world_copy, DIMS, proc_dims, periods, NO, &comm_cart);
-
-    //definizione dei gruppi di processi (quello relativo al comunicatore comm_world_copy, quelli relativi alle singole righe della mesh e quelli relativi alle singole colonne della mesh)
-    MPI_Group total_group;  //gruppo associato al comunicatore comm_world_copy
-    MPI_Group *row_groups;  //gruppi associati ai singoli comunicatori relativi alle righe della mesh
-    MPI_Group *col_groups;  //gruppi associati ai singoli comunicatori relativi alle colonne della mesh
-
-    //allocazione di memoria per tutte le variabili sopra definite
-    *row_comms_ptr = (MPI_Comm *)malloc(proc_dims[0]*sizeof(MPI_Comm));
-    *col_comms_ptr = (MPI_Comm *)malloc(proc_dims[1]*sizeof(MPI_Comm));
-    if(!(*row_comms_ptr && *col_comms_ptr)) {
-        printf("Unable to allocate row_comms and col_comms.\n");
-        MPI_Abort(comm_world_copy, EXIT_FAILURE);
-
-    }
-    row_groups = (MPI_Group *)malloc(proc_dims[0]*sizeof(MPI_Group));
-    col_groups = (MPI_Group *)malloc(proc_dims[1]*sizeof(MPI_Group));
-    if(!(row_groups && col_groups)) {
-        printf("Unable to allocate row_groups and col_groups.\n");
-        MPI_Abort(comm_world_copy, EXIT_FAILURE);
-
-    }
-
-    //definizione di tutti gli array di processi per ciascuna riga e per ciascuna colonna della mesh (i.e. per ciascun sotto-comunicatore)
-    int **row_ranks_list;
-    int **col_ranks_list;
-    //array di appoggio che tengono traccia del prossimo indice da popolare per ciascun array contenuto nelle due ranks_list
-    int *row_indexes_list;
-    int *col_indexes_list;
-    //e poi abbiamo all_cart_coords che ospita le coordinate di tutti i processi nell'ambito della griglia cartesiana
-
-    //allocazione di memoria per tutte le variabili sopra definite
-    //1) allocazione degli array
-    row_indexes_list = (int *)malloc(proc_dims[0]*sizeof(int));
-    col_indexes_list = (int *)malloc(proc_dims[1]*sizeof(int));
-    if(!(row_indexes_list && col_indexes_list)) {
-        printf("Unable to allocate row_indexes_list and col_indexes_list.\n");
-        MPI_Abort(comm_world_copy, EXIT_FAILURE);
-
-    }
-    //2) allocazione dei doppi puntatori per le matrici
-    row_ranks_list = (int **)malloc(proc_dims[0]*sizeof(int *));
-    col_ranks_list = (int **)malloc(proc_dims[1]*sizeof(int *));
-    *all_cart_coords_ptr = (int **)malloc(p*sizeof(int *));
-    if(!(row_ranks_list && col_ranks_list && *all_cart_coords_ptr)) {
-        printf("Unable to allocate row_ranks_list, col_ranks_list and all_cart_coords.\n");
-        MPI_Abort(comm_world_copy, EXIT_FAILURE);
-
-    }
-    //3) allocazione delle entry delle matrici vere e proprie (con inizializzazione del puntatore relativo alla prima riga)
-    row_ranks_list[0] = (int *)malloc(proc_dims[0]*proc_dims[1]*sizeof(int));
-    col_ranks_list[0] = (int *)malloc(proc_dims[1]*proc_dims[0]*sizeof(int));
-    *all_cart_coords_ptr[0] = (int *)malloc(p*DIMS*sizeof(int));
-    if(!(row_ranks_list[0] && col_ranks_list[0] && *all_cart_coords_ptr[0])) {
-        printf("Unable to allocate row_ranks_list[0], col_ranks_list[0] and all_cart_coords[0].\n");
-        MPI_Abort(comm_world_copy, EXIT_FAILURE);
-
-    }
-    //4) inizializzazione dei puntatori relativi alle righe successive alla prima
-    for(i=1; i<proc_dims[0]; i++)
-        row_ranks_list[i] = row_ranks_list[0] + i*proc_dims[1];
-    for(i=1; i<proc_dims[1]; i++)
-        col_ranks_list[i] = col_ranks_list[0] + i*proc_dims[0];
-    for(i=1; i<p; i++)
-        *all_cart_coords_ptr[i] = *all_cart_coords_ptr[0] + i*DIMS;
-
-    //inizializzazione a 0 di tutti i campi delle due indexes_list
-    for(i=0; i<proc_dims[0]; i++) {
-        row_indexes_list[i] = 0;
-    }
-    for(i=0; i<proc_dims[1]; i++) {
-        col_indexes_list[i] = 0;
-    }
-
-    //ottenimento del gruppo dei processi che partecipano al comunicatore comm_world_copy (che sarebbero tutti i processi)
-    MPI_Comm_group(comm_world_copy, &total_group);
-
-    //ottenimento di tutti i gruppi associati alle singole righe della mesh
-    for(i=0; i<p; i++) {
-        MPI_Cart_coords(comm_cart, i, DIMS, *all_cart_coords_ptr[i]);  //calcolo di delle cordinate per il processo i
-        
-        //popolamento dell'opportuno array contenuto in row_ranks_list; all_cart_coords[i][0] è l'indice riga del processo all'interno della mesh
-        row_ranks_list[*all_cart_coords_ptr[i][0]][row_indexes_list[*all_cart_coords_ptr[i][0]]] = i;     //i = rank corrente
-        row_indexes_list[*all_cart_coords_ptr[i][0]]++;
-
-        //popolamento dell'opportuno array contenuto in col_ranks_list; all_cart_coords[i][1] è l'indice colonna del processo all'interno della mesh
-        col_ranks_list[*all_cart_coords_ptr[i][1]][col_indexes_list[*all_cart_coords_ptr[i][1]]] = i;     //i = rank corrente
-        col_indexes_list[*all_cart_coords_ptr[i][1]]++;
-
-    }
-
-    //ottenimento di tutti i sottogruppi legati alle singole righe della mesh e ai relativi sotto-comunicatori
-    for(i=0; i<proc_dims[0]; i++) {
-        //ricordiamo che abbiamo un numero di sottogruppi pari al numero di righe della mesh e un numero di processi in ogni sottogruppo pari al numero di colonne della mesh
-        MPI_Group_incl(total_group, proc_dims[1], row_ranks_list[i], &row_groups[i]);
-        MPI_Comm_create(comm_world_copy, row_groups[i], row_comms_ptr[i]);   //i comunicatori qui definiti (in row_comms) verranno utilizzati nella funzione MPI_Scatterv().
-    
-    }
-    //ottenimento di tutti i sottogruppi legati alle singole colonne della mesh e ai relativi sotto-comunicatori
-    for(i=0; i<proc_dims[1]; i++) {
-        //ricordiamo che abbiamo un numero di sottogruppi pari al numero di colonne della mesh e un numero di processi in ogni sottogruppo pari al numero di righe della mesh
-        MPI_Group_incl(total_group, proc_dims[0], col_ranks_list[i], &col_groups[i]);
-        MPI_Comm_create(comm_world_copy, col_groups[i], col_comms_ptr[i]);   //i comunicatori qui definiti (in col_comms) verranno utilizzati nella funzione MPI_Scatterv().
-    
-    }
-    //è possibile supporre che la prima entry di row_comms contenga il comunicatore relativo ai rappresentanti delle colonne della mesh,
-    //mentre la prima entry di col_comms contenga il comunicatore relativo ai rappresentanti delle righe della mesh.
-
-}
-
-
-
 int main(int argc, char **argv) {
     //informazioni che il processo 0 deve inviare agli altri processi
     int big_k;  //K
@@ -157,12 +29,14 @@ int main(int argc, char **argv) {
     int my_rank;
     int p;
     MPI_Comm comm_world_copy;   //copia del comunicatore MPI_COMM_WORLD (è sempre buona norma averla)
+    MPI_Comm comm_cart;         //nuovo comunicatore relativo alla griglia di processi da associare alla matrice C
     //variabili utili per suddividere il lavoro dei processi
     int m;                      //numero di righe per la sottomatrice (di C) da assegnare a ciascun processo
     int n;                      //numero di colonne per la sottomatrice (di C) da assegnare a ciascun processo
     int proc_dims[DIMS];        //array che indica il numero di processi che va a finire in ciascuna dimensione della matrice C (--> la mesh coinvolgerà la matrice C)
     int proc_dims_hat[DIMS];    //array che indica il numero di righe e colonne che, nella mesh di processi, sono composte da una riga/colonmna di C in più (le entry sono risp. M%m, N%n)
     //variabili di appoggio
+    int periods[DIMS];          //array che indica se ciascuna dimensione della matrice deve essere periodica (i.e. circolare) o meno
     int mesh_row_index;         //variabile che tiene traccia dell'indice riga all'interno della mesh di processi
     int mesh_col_index;         //variabile che tiene traccia dell'indice colonna all'interno della mesh di processi
     int my_mesh_row;            //il PROPRIO indice riga all'interno della mesh di processi
@@ -178,12 +52,127 @@ int main(int argc, char **argv) {
     MPI_Comm_rank(comm_world_copy, &my_rank);
     printf("Hello from process %d of %d!\n", my_rank, p);
 
+    //inizializzazione di periods a soli false + inizializzazione di proc_dims a soli 0
+    for(i=0; i<DIMS; i++) {
+        periods[i] = NO;
+        proc_dims[i] = 0;   //proc_dims[0] = #righe della mesh di processi; proc_dims[1] = #colonne della mesh di processi
+
+    }
+
+    //definizione (e successiva creazione) della topologia più quadrata possibile per i p processi
+    MPI_Dims_create(p, DIMS, proc_dims);
+    MPI_Cart_create(comm_world_copy, DIMS, proc_dims, periods, NO, &comm_cart);
+
     //definizione dei comunicatori relativi alle singole righe della mesh e alle singole colonne della mesh
     MPI_Comm *row_comms;
     MPI_Comm *col_comms;
-    //variabile d'appoggio: ospita le coordinate di tutti i processi nell'ambito della griglia cartesiana (banalmente [0,0], [0,1] e così via)
+    //definizione dei gruppi di processi (quello relativo al comunicatore comm_world_copy, quelli relativi alle singole righe della mesh e quelli relativi alle singole colonne della mesh)
+    MPI_Group total_group;  //gruppo associato al comunicatore comm_world_copy
+    MPI_Group *row_groups;  //gruppi associati ai singoli comunicatori relativi alle righe della mesh
+    MPI_Group *col_groups;  //gruppi associati ai singoli comunicatori relativi alle colonne della mesh
+
+    //allocazione di memoria per tutte le variabili sopra definite
+    row_comms = (MPI_Comm *)malloc(proc_dims[0]*sizeof(MPI_Comm));
+    col_comms = (MPI_Comm *)malloc(proc_dims[1]*sizeof(MPI_Comm));
+    if(!(row_comms && col_comms)) {
+        printf("Unable to allocate row_comms and col_comms.\n");
+        MPI_Abort(comm_world_copy, EXIT_FAILURE);
+
+    }
+    row_groups = (MPI_Group *)malloc(proc_dims[0]*sizeof(MPI_Group));
+    col_groups = (MPI_Group *)malloc(proc_dims[1]*sizeof(MPI_Group));
+    if(!(row_groups && col_groups)) {
+        printf("Unable to allocate row_groups and col_groups.\n");
+        MPI_Abort(comm_world_copy, EXIT_FAILURE);
+
+    }
+
+    //definizione di tutti gli array di processi per ciascuna riga e per ciascuna colonna della mesh (i.e. per ciascun sotto-comunicatore)
+    int **row_ranks_list;
+    int **col_ranks_list;
+    //array di appoggio che tengono traccia del prossimo indice da popolare per ciascun array contenuto nelle due ranks_list
+    int *row_indexes_list;
+    int *col_indexes_list;
+    //variabile d'appoggio: ospita le coordinate di tutti i processi nell'ambito della griglia cartesiana
     int **all_cart_coords;
-    create_comms(p, proc_dims, comm_world_copy, &row_comms, &col_comms, &all_cart_coords);
+
+    //allocazione di memoria per tutte le variabili sopra definite
+    //1) allocazione degli array
+    row_indexes_list = (int *)malloc(proc_dims[0]*sizeof(int));
+    col_indexes_list = (int *)malloc(proc_dims[1]*sizeof(int));
+    if(!(row_indexes_list && col_indexes_list)) {
+        printf("Unable to allocate row_indexes_list and col_indexes_list.\n");
+        MPI_Abort(comm_world_copy, EXIT_FAILURE);
+
+    }
+    //2) allocazione dei doppi puntatori per le matrici
+    row_ranks_list = (int **)malloc(proc_dims[0]*sizeof(int *));
+    col_ranks_list = (int **)malloc(proc_dims[1]*sizeof(int *));
+    all_cart_coords = (int **)malloc(p*sizeof(int *));
+    if(!(row_ranks_list && col_ranks_list && all_cart_coords)) {
+        printf("Unable to allocate row_ranks_list, col_ranks_list and all_cart_coords.\n");
+        MPI_Abort(comm_world_copy, EXIT_FAILURE);
+
+    }
+    //3) allocazione delle entry delle matrici vere e proprie (con inizializzazione del puntatore relativo alla prima riga)
+    row_ranks_list[0] = (int *)malloc(proc_dims[0]*proc_dims[1]*sizeof(int));
+    col_ranks_list[0] = (int *)malloc(proc_dims[1]*proc_dims[0]*sizeof(int));
+    all_cart_coords[0] = (int *)malloc(p*DIMS*sizeof(int));
+    if(!(row_ranks_list[0] && col_ranks_list[0] && all_cart_coords[0])) {
+        printf("Unable to allocate row_ranks_list[0], col_ranks_list[0] and all_cart_coords[0].\n");
+        MPI_Abort(comm_world_copy, EXIT_FAILURE);
+
+    }
+    //4) inizializzazione dei puntatori relativi alle righe successive alla prima
+    for(i=1; i<proc_dims[0]; i++)
+        row_ranks_list[i] = row_ranks_list[0] + i*proc_dims[1];
+    for(i=1; i<proc_dims[1]; i++)
+        col_ranks_list[i] = col_ranks_list[0] + i*proc_dims[0];
+    for(i=1; i<p; i++)
+        all_cart_coords[i] = all_cart_coords[0] + i*DIMS;
+
+    //inizializzazione a 0 di tutti i campi delle due indexes_list
+    for(i=0; i<proc_dims[0]; i++) {
+        row_indexes_list[i] = 0;
+    }
+    for(i=0; i<proc_dims[1]; i++) {
+        col_indexes_list[i] = 0;
+    }
+
+    //ottenimento del gruppo dei processi che partecipano al comunicatore comm_world_copy (che sarebbero tutti i processi)
+    MPI_Comm_group(comm_world_copy, &total_group);
+
+    //ottenimento di tutti i gruppi associati alle singole righe della mesh
+    for(i=0; i<p; i++) {
+        MPI_Cart_coords(comm_cart, i, DIMS, all_cart_coords[i]);  //calcolo di delle cordinate per il processo i
+        
+        //popolamento dell'opportuno array contenuto in row_ranks_list; all_cart_coords[i][0] è l'indice riga del processo all'interno della mesh
+        row_ranks_list[all_cart_coords[i][0]][row_indexes_list[all_cart_coords[i][0]]] = i;     //i = rank corrente
+        row_indexes_list[all_cart_coords[i][0]]++;
+
+        //popolamento dell'opportuno array contenuto in col_ranks_list; all_cart_coords[i][1] è l'indice colonna del processo all'interno della mesh
+        col_ranks_list[all_cart_coords[i][1]][col_indexes_list[all_cart_coords[i][1]]] = i;     //i = rank corrente
+        col_indexes_list[all_cart_coords[i][1]]++;
+
+    }
+
+    //ottenimento di tutti i sottogruppi legati alle singole righe della mesh e ai relativi sotto-comunicatori
+    for(i=0; i<proc_dims[0]; i++) {
+        //ricordiamo che abbiamo un numero di sottogruppi pari al numero di righe della mesh e un numero di processi in ogni sottogruppo pari al numero di colonne della mesh
+        MPI_Group_incl(total_group, proc_dims[1], row_ranks_list[i], &row_groups[i]);
+        MPI_Comm_create(comm_world_copy, row_groups[i], &row_comms[i]);   //i comunicatori qui definiti (in row_comms) verranno utilizzati nella funzione MPI_Scatterv().
+    
+    }
+    //ottenimento di tutti i sottogruppi legati alle singole colonne della mesh e ai relativi sotto-comunicatori
+    for(i=0; i<proc_dims[1]; i++) {
+        //ricordiamo che abbiamo un numero di sottogruppi pari al numero di colonne della mesh e un numero di processi in ogni sottogruppo pari al numero di righe della mesh
+        MPI_Group_incl(total_group, proc_dims[0], col_ranks_list[i], &col_groups[i]);
+        MPI_Comm_create(comm_world_copy, col_groups[i], &col_comms[i]);   //i comunicatori qui definiti (in col_comms) verranno utilizzati nella funzione MPI_Scatterv().
+    
+    }
+    //è possibile supporre che la prima entry di row_comms contenga il comunicatore relativo ai rappresentanti delle colonne della mesh,
+    //mentre la prima entry di col_comms contenga il comunicatore relativo ai rappresentanti delle righe della mesh.
+
 
     //si assume che solo il processo 0 inizialmente conosca i valori di K, N, M e le tre matrici.
     if(my_rank == 0) {
