@@ -12,29 +12,25 @@
 
 //va valutato il giusto ordine di operazioni
 //e si possono fare meglio di n^3 operazioni?
-void calcolo_Computazionale(int* localA,int* localB,int* localC,int m,int n,int k){
-    printf("inizio a fare i cicli\n");
+void calcolo_Computazionale(float* localA,float* localB,float* localC,int m,int n,int k){
     for(int i=0;i<m;i++){
         for(int j=0;j<n;j++){
             for(int z=0;z<k;z++){
                 localC[i*n+j]+=localA[i*k+z]*localB[j*k+z];
-                // printf("A[%d][%d] = %d\n", i, z, localA[i*k+z]);
-                // printf("B[%d][%d] = %d\n", i, z, localB[j*k+z]);
-                // printf("C[%d][%d] = %d\n", i, j, localC[i*n+j]);
             }
         }
     }
 }
-void init_localC(int * C,int n,int m){
+void init_localC(float * C,int n,int m){
     for(int i=0;i<n;i++){
         for(int j=0;j<m;j++){
-            C[i*m+j]=1;
+            C[i*m+j]=1.;
         }
     }
 }
-void init_Vector(int *vet,int dim){
+void init_Vector(float *vet,int dim){
     for(int i=0;i<dim;i++){
-        vet[i]=1;
+        vet[i]=1.;
     }
 }
 /*
@@ -56,16 +52,20 @@ void func_gen_data(int my_rank,int  my_coordinate[2],int sizeA,int sizeB,int siz
 }
 
 int main(int argc, char **argv) {
+    if(argc != 4){
+        return -1;
+    }
     //informazioni che il processo 0 deve inviare agli altri processi
-    int K=80;  //Numero Colonne A //Numero righe B
-    int M=80;  //Numero Righe di A //Numero righe di C 
-    int N=80;  //Numero Colonne di B //Numero colonne di C
+    int K=atoi(argv[1]);  //Numero Colonne A //Numero righe B
+    int M=atoi(argv[2]);  //Numero Righe di A //Numero righe di C 
+    int N=atoi(argv[3]);  //Numero Colonne di B //Numero colonne di C
     int nb =1;      //Iper-parametro della mattonella
     int mb =1;      //iper-parametro della mttonella
     //porzioni locali delle matrici
-    int *localA;
-    int *localB;
-    int *localC;
+    float *localA;
+    float *localB;
+    float *localC;
+    float *C;
     //variabili MPI
     int my_rank;
     int my_coord[DIMS];
@@ -76,24 +76,22 @@ int main(int argc, char **argv) {
     int n;                      //numero di righe per la sottomatrice (di C) da assegnare a ciascun processo
     int m;                      //numero di colonne per la sottomatrice (di C) da assegnare a ciascun processo
     int proc_dims[DIMS];        //array che indica il numero di processi che va a finire in ciascuna dimensione della matrice C (--> la mesh coinvolgerà la matrice C)
-    int proc_dims_hat[DIMS];    //array che indica il numero di righe e colonne che, nella mesh di processi, sono composte da una riga/colonmna di C in più (le entry sono risp. N%n, M%m)
     //variabili di appoggio
     int periods[DIMS];          //array che indica se ciascuna dimensione della matrice deve essere periodica (i.e. circolare) o meno
-    int mesh_row_index;         //variabile che tiene traccia dell'indice riga all'interno della mesh di processi
-    int mesh_col_index;         //variabile che tiene traccia dell'indice colonna all'interno della mesh di processi
-    int my_mesh_row;            //il PROPRIO indice riga all'interno della mesh di processi
-    int my_mesh_col;            //il PROPRIO indice colonna all'interno della mesh di processi
     //indici ciclo for
     int i;
     int j;
     int k;
-
-    MPI_Init(NULL, NULL);
+    double start;
+    double startAftearCreate;
+    double end;
+    MPI_Init(&argc, &argv);
     MPI_Comm_dup(MPI_COMM_WORLD, &comm_world_copy); //duplicazione del comunicatore MPI_COMM_WORLD
     MPI_Comm_size(MPI_COMM_WORLD, &p);
     MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
-    //printf("Hello from process %d of %d!\n", my_rank, p);
-    
+
+    MPI_Barrier(comm_world_copy);
+    start=MPI_Wtime();
     //inizializzazione di periods a soli false + inizializzazione di proc_dims a soli 0
     for(i=0; i<DIMS; i++) {
         periods[i] = NO;
@@ -152,9 +150,10 @@ int main(int argc, char **argv) {
         printf("Unable to allocate comunicatore per colonne.\n");
         MPI_Abort(comm_world_copy, EXIT_FAILURE);
     }
-    localA =(int*) malloc((sizeof(int)*K*m));
-    localB =(int*) malloc((sizeof(int)*K*n));
-    localC =(int*) malloc((sizeof(int)*n*m));
+    localA =(float*) malloc((sizeof(float)*K*m));
+    localB =(float*) malloc((sizeof(float)*K*n));
+    localC =(float*) malloc((sizeof(float)*n*m));
+    if(my_rank==0)  C=(float*) malloc((sizeof(int)*N*M));
     if(!(localA && localB && localC)) {
         printf("Unable to allocate local_A, local_B, local_C and intermediate_C.\n");
         MPI_Abort(comm_world_copy, EXIT_FAILURE);
@@ -164,7 +163,7 @@ int main(int argc, char **argv) {
         if(my_coord[1]==0){
            init_Vector(&(localA[i*K]),K);
         }    
-        MPI_Bcast(&(localA[i*K]), K, MPI_INT,0, my_comm_row);
+        MPI_Bcast(&(localA[i*K]), K, MPI_FLOAT,0, my_comm_row);
     }
     //La matrice B viene creata per colonne
     //Condivisione della matrice B
@@ -172,22 +171,61 @@ int main(int argc, char **argv) {
         if(my_coord[0]==0){
            init_Vector(&(localB[i*K]),K);
         }    
-        MPI_Bcast(&(localB[i*K]), K, MPI_INT,0, my_comm_column);
+        MPI_Bcast(&(localB[i*K]), K, MPI_FLOAT,0, my_comm_column);
     }
     //La matrice C ognuno si alloca la sua
     init_localC(localC,n,m);
+
+    MPI_Barrier(comm_world_copy);
+    startAftearCreate=MPI_Wtime();
     //Calcolo Cooutazionale
     calcolo_Computazionale(localA,localB,localC,m,n,K);
-    //printf("%d finito la computazion\n",my_rank);
-    // if(col_comms[0] != MPI_COMM_NULL)    //check su se il processo appartiene effettivamente al comunicatore col_comms[0]
-    //     MPI_Gatherv(intermediate_C, block_sizes_C[my_mesh_row], MPI_INT, total_C, block_sizes_C, block_displs_C, MPI_INT, 0, col_comms[0]);
+
     //stampa del risultato finale
-    printf("RESULT:\n");
-    for(i=0; i<m; i++) {
-        for(j=0; j<n; j++) {
-            printf("%d) C[%d][%d] = %d\n",my_rank,i*proc_dims[0]+my_coord[0], j*proc_dims[1]+my_coord[1], localC[i*m+j]);
+    if(my_rank==0){
+        for(j=0;j<m;j++){
+                for(k=0;k<n;k++){
+                    int row=j*proc_dims[0];
+                    int column=k*proc_dims[1];
+                    C[row*m+column]=localC[j*m+k];
+                }
+            }
+        for(i=1;i<p;i++){
+            int size[2];
+            MPI_Status status;
+            MPI_Recv(&size,2, MPI_FLOAT,i, 0, comm_world_copy, &status);
+            //chech status if(status.MPI_ERROR<0)
+            float * buffer=(float*) malloc(sizeof(int)*size[0]*size[1]);
+            MPI_Recv(buffer, size[0]*size[1], MPI_FLOAT,i,0, comm_world_copy,&status);
+            int coord_i[DIMS];
+            MPI_Cart_coords(comm_cart, i, DIMS,coord_i);
+            for(j=0;j<size[0];j++){
+                for(k=0;k<size[1];k++){
+                    int row=j*proc_dims[0]+coord_i[0];
+                    int column=k*proc_dims[1]+coord_i[1];
+                    C[row*M+column]=buffer[j*size[1]+k];
+                }
+            }
         }
     }
+    else{
+        int dim[2]={m,n};
+        MPI_Ssend(dim,2,MPI_FLOAT,0,0,comm_world_copy);
+        MPI_Ssend(localC,m*n,MPI_FLOAT,0,0,comm_world_copy);
+    }
+    MPI_Barrier(comm_world_copy);
+    end=MPI_Wtime();
+    
+    if(my_rank==0){
+        printf("RESULT:\n");
+        for(i=0; i<M; i++) {
+            for(j=0; j<N; j++) {
+                printf("[%.1f] ", C[i*M+j]);
+            }
+            printf("\n");
+        }
+    }
+    printf("%d)tempo senza creazione=%f  tempo Totale=%fs\n",my_rank,end-startAftearCreate,end-start);
     MPI_Finalize();
     return 0;
 }
