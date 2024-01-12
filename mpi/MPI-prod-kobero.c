@@ -36,21 +36,20 @@ void init_Vector(float *vet,int dim){
 /*
     questa é da modificare
 */
-void func_gen_data(int my_rank,int  my_coordinate[2],int sizeA,int sizeB,int sizeC,float * A,float * B,float * C){
-        int i=0;
-        for(;i<sizeA;i++){
-            A[i]=1.0;
-        }
-        i=0;
-        for(;i<sizeB;i++){
-            B[i]=1.0;
-        }
-        i=0;
-        for(;i<sizeC;i++){
-            C[i]=1.0;
-        }
+void init_SingleCase(float* A,float* B,float* C,int M,int N,int K){
+    //init A matrice M*K
+    for(int i=0;i<M;i++){
+        for (int j = 0; j < K; j++) A[i*K+j]=1.;
+    }
+    //init B matrice K*N
+    for(int i=0;i<K;i++){
+        for (int j = 0; j < N; j++) B[i*N+j]=1.;
+    }
+    //init C matrice M*N
+    for(int i=0;i<M;i++){
+        for (int j = 0; j < N; j++) C[i*N+j]=1.;
+    }
 }
-
 int main(int argc, char **argv) {
     if(argc != 4){
         return -1;
@@ -89,7 +88,17 @@ int main(int argc, char **argv) {
     MPI_Comm_dup(MPI_COMM_WORLD, &comm_world_copy); //duplicazione del comunicatore MPI_COMM_WORLD
     MPI_Comm_size(MPI_COMM_WORLD, &p);
     MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
-
+    float* C_SingoleCase;
+    //Elaborazione matrice singola
+    if(my_rank == 0){
+        float* A_SingoleCase=(float*) malloc(sizeof(float)*M*K);
+        float* B_SingoleCase=(float*) malloc(sizeof(float)*K*N);
+        C_SingoleCase=(float*) malloc(sizeof(float)*M*N);
+        init_SingleCase(A_SingoleCase,B_SingoleCase,C_SingoleCase,M,N,K);
+        calcolo_Computazionale(A_SingoleCase,B_SingoleCase,C_SingoleCase,M,N,K);
+        free(A_SingoleCase);
+        free(B_SingoleCase);
+    }
     MPI_Barrier(comm_world_copy);
     start=MPI_Wtime();
     //inizializzazione di periods a soli false + inizializzazione di proc_dims a soli 0
@@ -134,6 +143,8 @@ int main(int argc, char **argv) {
         printf("Unable to allocate comunicatore per righe.\n");
         MPI_Abort(comm_world_copy, EXIT_FAILURE);
     }
+    free(my_row_rank);
+
     coords[1]=my_coord[1];
     //mi segno i processi inerenti alla mia colonna
     for(i=0;i<proc_dims[0];i++){
@@ -150,6 +161,8 @@ int main(int argc, char **argv) {
         printf("Unable to allocate comunicatore per colonne.\n");
         MPI_Abort(comm_world_copy, EXIT_FAILURE);
     }
+    free(my_column_rank);
+
     localA =(float*) malloc((sizeof(float)*K*m));
     localB =(float*) malloc((sizeof(float)*K*n));
     localC =(float*) malloc((sizeof(float)*n*m));
@@ -206,6 +219,7 @@ int main(int argc, char **argv) {
                     C[row*M+column]=buffer[j*size[1]+k];
                 }
             }
+            free(buffer);
         }
     }
     else{
@@ -215,16 +229,25 @@ int main(int argc, char **argv) {
     }
     MPI_Barrier(comm_world_copy);
     end=MPI_Wtime();
-    
+    //calcolo MAX DIFF
     if(my_rank==0){
-        printf("RESULT:\n");
+        double maxErr=0.0;
+        int countt=0;
         for(i=0; i<M; i++) {
             for(j=0; j<N; j++) {
-                printf("[%.1f] ", C[i*M+j]);
+                if(maxErr<(C[i*N+j] - C_SingoleCase[i*N+j])){
+                    maxErr= C[i*N+j] - C_SingoleCase[i*N+j];
+                    countt++;
+                }
             }
-            printf("\n");
         }
+        printf("Max Error=%f Number error=%d\n",maxErr,countt);
+        free(C);
+        free(C_SingoleCase);
     }
+    free(localA);
+    free(localB);
+    free(localC);
     printf("%d)tempo senza creazione=%f  tempo Totale=%fs\n",my_rank,end-startAftearCreate,end-start);
     MPI_Finalize();
     return 0;
