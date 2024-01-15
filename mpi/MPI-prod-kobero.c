@@ -51,36 +51,35 @@ void init_SingleCase(float* A,float* B,float* C,int M,int N,int K){
     }
 }
 int main(int argc, char **argv) {
-    if(argc != 4){
-        return -1;
-    }
+
     //informazioni che il processo 0 deve inviare agli altri processi
-    int K=atoi(argv[1]);  //Numero Colonne A //Numero righe B
-    int M=atoi(argv[2]);  //Numero Righe di A //Numero righe di C 
-    int N=atoi(argv[3]);  //Numero Colonne di B //Numero colonne di C
+    int K; //Numero Colonne A //Numero righe B
+    int M;  //Numero Righe di A //Numero righe di C 
+    int N;  //Numero Colonne di B //Numero colonne di C
     int nb =1;      //Iper-parametro della mattonella
     int mb =1;      //iper-parametro della mttonella
     //porzioni locali delle matrici
     float *localA;
     float *localB;
     float *localC;
-    float *C;
+    float *C;   //variabile utilizzata solo dal processo 0
     //variabili MPI
-    int my_rank;
-    int my_coord[DIMS];
-    int p;
+    int my_rank;        //il rank personale all'interno dell comunicatore globale
+    int my_coord[DIMS]; //le cordinate sulla griglia all'interno del comunicatore cartesiano 
+    int p;              //Numero di processi utilizzati
     MPI_Comm comm_world_copy;   //copia del comunicatore MPI_COMM_WORLD (è sempre buona norma averla)
     MPI_Comm comm_cart;         //nuovo comunicatore relativo alla griglia di processi da associare alla matrice C
     //variabili utili per suddividere il lavoro dei processi
-    int n;                      //numero di righe per la sottomatrice (di C) da assegnare a ciascun processo
-    int m;                      //numero di colonne per la sottomatrice (di C) da assegnare a ciascun processo
-    int proc_dims[DIMS];        //array che indica il numero di processi che va a finire in ciascuna dimensione della matrice C (--> la mesh coinvolgerà la matrice C)
+    int n;                      //numero di colonne per la sottomatrice (di C) da assegnare a ciascun processo
+    int m;                      //numero di righe per la sottomatrice (di C) da assegnare a ciascun processo
+    int proc_dims[DIMS];        //[0]: indica le righe della griglia dei processi [1]: indica le colonne
     //variabili di appoggio
     int periods[DIMS];          //array che indica se ciascuna dimensione della matrice deve essere periodica (i.e. circolare) o meno
     //indici ciclo for
     int i;
     int j;
     int k;
+    //variabili per misurare le prestazioni
     double start;
     double startAftearCreate;
     double end;
@@ -88,17 +87,36 @@ int main(int argc, char **argv) {
     MPI_Comm_dup(MPI_COMM_WORLD, &comm_world_copy); //duplicazione del comunicatore MPI_COMM_WORLD
     MPI_Comm_size(MPI_COMM_WORLD, &p);
     MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
+    if(argc != 4){
+        printf("%d input non valido \n",my_rank);
+        MPI_Abort(comm_world_copy, EXIT_FAILURE);
+    }
+    K=atoi(argv[1]);  
+    M=atoi(argv[2]);   
+    N=atoi(argv[3]);  
+    if(K==0 || M==0 || N==0){
+        printf("%d input non valido \n",my_rank);
+        MPI_Abort(comm_world_copy, EXIT_FAILURE);    
+    }
     float* C_SingoleCase;
-    //Elaborazione matrice singola
+    //Elaborazione matrice singola elaborazione fatta solo dal processo 0
+    //serve per misurare la correttezza del programma 
+    double startSingleExecution;
+    double endSingleExecution;
+    double startSingleComputation;
     if(my_rank == 0){
+        startSingleExecution=MPI_Wtime();
         float* A_SingoleCase=(float*) malloc(sizeof(float)*M*K);
         float* B_SingoleCase=(float*) malloc(sizeof(float)*K*N);
         C_SingoleCase=(float*) malloc(sizeof(float)*M*N);
         init_SingleCase(A_SingoleCase,B_SingoleCase,C_SingoleCase,M,N,K);
+        startSingleComputation=MPI_Wtime();
         calcolo_Computazionale(A_SingoleCase,B_SingoleCase,C_SingoleCase,M,N,K);
+        endSingleExecution=MPI_Wtime();
         free(A_SingoleCase);
         free(B_SingoleCase);
     }
+
     MPI_Barrier(comm_world_copy);
     start=MPI_Wtime();
     //inizializzazione di periods a soli false + inizializzazione di proc_dims a soli 0
@@ -123,9 +141,14 @@ int main(int argc, char **argv) {
     if(my_coord[1]<resto_colonne) n++;
     if(my_coord[0]<resto_righe) m++;
 
-    //TODO: Check malloc
     int* my_row_rank=(int*)malloc(sizeof(int)*proc_dims[1]);
     int* my_column_rank=(int*)malloc(sizeof(int)*proc_dims[0]);
+    if(my_row_rank == NULL || my_column_rank==NULL)
+    {
+        printf("%d Unable to allocate array of int for column or row \n",my_rank);
+        MPI_Abort(comm_world_copy, EXIT_FAILURE);
+    }
+
     int coords[DIMS];
     coords[0]=my_coord[0];
     //mi metto i processi inerenti alla mia riga
@@ -166,7 +189,13 @@ int main(int argc, char **argv) {
     localA =(float*) malloc((sizeof(float)*K*m));
     localB =(float*) malloc((sizeof(float)*K*n));
     localC =(float*) malloc((sizeof(float)*n*m));
-    if(my_rank==0)  C=(float*) malloc((sizeof(int)*N*M));
+    if(my_rank==0) {
+        C=(float*) malloc((sizeof(int)*N*M));
+        if(C==NULL){
+            printf("processo 0 Unable to allocate total Matrix\n");
+            MPI_Abort(comm_world_copy, EXIT_FAILURE);
+        }
+    }
     if(!(localA && localB && localC)) {
         printf("Unable to allocate local_A, local_B, local_C and intermediate_C.\n");
         MPI_Abort(comm_world_copy, EXIT_FAILURE);
@@ -196,6 +225,7 @@ int main(int argc, char **argv) {
 
     //stampa del risultato finale
     if(my_rank==0){
+        //tratto i dati del processo 0 in modo differente
         for(j=0;j<m;j++){
                 for(k=0;k<n;k++){
                     int row=j*proc_dims[0];
@@ -203,6 +233,7 @@ int main(int argc, char **argv) {
                     C[row*m+column]=localC[j*m+k];
                 }
             }
+        //copio tutte le matrici locali all'interno del processo 0
         for(i=1;i<p;i++){
             int size[2];
             MPI_Status status;
@@ -244,6 +275,8 @@ int main(int argc, char **argv) {
         printf("Max Error=%f Number error=%d\n",maxErr,countt);
         free(C);
         free(C_SingoleCase);
+        printf("tempo esecuzione caso singolo tempo totale=%fs tempo senza creazione=%fs",endSingleExecution-startSingleExecution,endSingleExecution-startSingleComputation);
+        printf("speed up: %f/%f=%f ",endSingleExecution-startSingleComputation,end-startAftearCreate,(endSingleExecution-startSingleComputation)/(end-startAftearCreate))
     }
     free(localA);
     free(localB);
