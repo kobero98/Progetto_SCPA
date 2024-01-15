@@ -3,14 +3,384 @@
 #include <string.h>
 #include "mpi.h"
 
-#define K 3 //#rows of matrix B and #columns of matrix A
-#define N 4 //#columns of matrixes B, C
-#define M 5 //#rows of matrixes A, C
 #define DIMS 2  //number of dimensions of a matrix
+#define RAND_DIV 1000000000.0   //divisor of rand() when matrixes components are generated
+
 #define NO 0
 #define YES NO+1
+
 #define DEBUG
 
+
+
+/* function which has the responsibility to allocate the array representing the association rank - mesh coordinates for all the processes */
+int **create_all_cart_coords(int p, MPI_Comm comm_world_copy, MPI_Comm comm_cart) {
+    //local auxiliary variables
+    int i;  //loop index
+    //function output
+    int **all_cart_coords;
+
+    //allocation of all_cart_coords
+    all_cart_coords = (int **)malloc(p*sizeof(int *));
+    if(!all_cart_coords)
+        MPI_Abort(comm_world_copy, EXIT_FAILURE);
+
+    for(i=0; i<p; i++) {
+        //allocation of all_cart_coords[i]
+        all_cart_coords[i] = (int *)malloc(DIMS*sizeof(int));
+        if(!all_cart_coords[i])
+            MPI_Abort(comm_world_copy, EXIT_FAILURE);
+
+        //get the coordinates (mesh indexes) for process i
+        MPI_Cart_coords(comm_cart, i, DIMS, all_cart_coords[i]);
+
+    }
+
+    return all_cart_coords;
+
+}
+
+
+
+
+
+/* function which has the responsibility to allocate the array pointing to all the arrays of process ranks of each mesh row */
+int **create_row_ranks_list(int num_mesh_rows, int num_mesh_cols, int p, int **all_cart_coords, MPI_Comm comm_world_copy) {
+    //local auxiliary variables (loop indexes)
+    int i;
+    int j;
+    int l;
+    //function output
+    int **row_ranks_list;
+
+    //allocation of row_ranks_list[i]
+    row_ranks_list = (int **)malloc(num_mesh_rows*sizeof(int *));
+    if(!row_ranks_list)
+        MPI_Abort(comm_world_copy, EXIT_FAILURE);
+
+    for(i=0; i<num_mesh_rows; i++) {
+        //allocation of row_ranks_list
+        row_ranks_list[i] = (int *)malloc(num_mesh_cols*sizeof(int));
+        if(!row_ranks_list[i])
+            MPI_Abort(comm_world_copy, EXIT_FAILURE);
+
+        /* Here we are populating the ranks list associated to i-th row of the mesh.
+         * Index j represents the j-th entry of this rank list.
+         * Index l is only useful to iterate on all_cart_coords array to check which processes are exactly in the i-th row of the mesh.
+         */
+        for(j=0; j<num_mesh_cols; j++) {
+            for(l=0; l<p; l++) {
+                if(all_cart_coords[l][0] == i) {
+                    row_ranks_list[i][j] = l;   //l = rank of the found process having row index i in the mesh
+                    break;  //once we have populated the j-th entry, we can stop to scan all_cart_coords.
+                }
+
+            }
+
+        }
+
+    }
+
+    return row_ranks_list;
+
+}
+
+
+
+
+
+/* function which has the responsibility to allocate the array pointing to all the arrays of process ranks of each mesh column */
+int **create_col_ranks_list(int num_mesh_rows, int num_mesh_cols, int p, int **all_cart_coords, MPI_Comm comm_world_copy) {
+    //local auxiliary variables (loop indexes)
+    int i;
+    int j;
+    int l;
+    //function output
+    int **col_ranks_list;
+
+    //allocation of col_ranks_list
+    col_ranks_list = (int **)malloc(num_mesh_cols*sizeof(int *));
+    if(!col_ranks_list)
+        MPI_Abort(comm_world_copy, EXIT_FAILURE);
+
+    for(i=0; i<num_mesh_cols; i++) {
+        //allocation of col_ranks_list[i]
+        col_ranks_list[i] = (int *)malloc(num_mesh_cols*sizeof(int));
+        if(!col_ranks_list[i])
+            MPI_Abort(comm_world_copy, EXIT_FAILURE);
+
+        /* Here we are populating the ranks list associated to i-th column of the mesh.
+         * Index j represents the j-th entry of this rank list.
+         * Index l is only useful to iterate on all_cart_coords array to check which processes are exactly in the i-th column of the mesh.
+         */
+        for(j=0; j<num_mesh_rows; j++) {
+            for(l=0; l<p; l++) {
+                if(all_cart_coords[l][1] == i) {
+                    col_ranks_list[i][j] = l;   //l = rank of the found process having column index i in the mesh
+                    break;  //once we have populated the j-th entry, we can stop to scan all_cart_coords.
+                }
+
+            }
+
+        }
+
+    }
+
+    return col_ranks_list;
+
+}
+
+
+
+
+
+/* function which has the responsibility to calculate the number of rows (or, alternatively, the number of columns) of matrix A 
+ * ruled by the current process.
+ *
+ * IDEA:
+ * rows_superblock = mb*proc_dims[0]
+ * cols_superblock = nb*proc_dims[1]
+ * 
+ * superblocks_in_mesh_col = M/rows_superblock
+ * superblocks in mesh_row = K/cols_superblock
+ *
+ * exceeding_rows = M%rows_superblock
+ * exceeding_cols = K%cols_superblock
+ *
+ * k = kb*superblocks_in_mesh_row
+ * m = mb*superblocks_in_mesh_col
+ */
+int get_local_dim_A(int matrix_dim, int block_dim, int *proc_dims, int **all_cart_coords, int my_rank, int dim) {
+    /* LOCAL AUXILIARY VARIABLES */
+    //number of rows and columns in each (complete) superblock
+    int rows_or_cols_superblock;
+    //number of superblocks in each mesh row and in each mesh column
+    int superblocks_in_mesh_col_or_row;
+    //number of exceeding rows and exceeding columns with respect to the suddivision of the matrix given by the mesh
+    int exceeding_rows_or_cols;
+    int exceeding_cols;
+    //minimum number of rows (m) and minimum number of columns (k) of local_A for all the processes
+    int m_or_k;
+
+    //get the number of rows or columns in each (complete) superblock
+    rows_or_cols_superblock = block_dim*proc_dims[dim];
+    //get the number of superblocks in each mesh row or in each mesh column
+    superblocks_in_mesh_col_or_row = matrix_dim/rows_or_cols_superblock;
+    //get the number of exceeding rows or exceeding columns with respect to the suddivision of the matrix given by the mesh
+    exceeding_rows_or_cols = matrix_dim % rows_or_cols_superblock;
+    //get the minimum number of rows (m) or the minimum number of columns (k) of local_A foreach process
+    m_or_k = block_dim * superblocks_in_mesh_col_or_row;
+
+    //return the number of rows or columns of local_A for the current process
+    if(all_cart_coords[my_rank][dim] < exceeding_rows_or_cols / block_dim) //exceeding_rows/mb = #processes which will have mb extra rows
+        return m_or_k + block_dim;                                         //exceeding_cols/kb = #processes which will have kb extra columns
+    else if(all_cart_coords[my_rank][dim] == exceeding_rows_or_cols / block_dim)    //exceeding_rows%mb = #extra rows that process with rank == exceeding_rows/mb has
+        return m_or_k + (exceeding_rows_or_cols % block_dim);                       //exceeding_cols%kb = #extra columns that process with rank == exceeding_cols/kb has
+    else
+        return m_or_k;
+
+}
+
+
+
+
+
+int main(int argc, char **argv) {
+    /* INFORMATION THAT IS PROVIDED BY THE USER AND PROCESS 0 HAS TO SEND TO OTHER PROCESSES */
+    //total dimensions of the matrixes
+    int K;  //#rows of matrix B and #columns of matrix A (intially try with 12)
+    int N;  //#columns of matrixes B, C (initially try with 8)
+    int M;  //#rows of matrixes A, C (initially try with 10)
+    //dimensions of matrix blocks
+    int kb; //#columns of one block in matrix A (initially try with 2)
+    int mb; //#rows of one block in matrix A (initially try with 2)
+
+    /* VARIABLES WHERE THE MATRIXES ARE DEFINED */
+    //total matrixes
+    float *A;
+    float *B;
+    float *C;
+    //local portions of the matrixes
+    float *local_A;
+    float *local_B;
+    float *local_C;
+
+    /* MPI VARIABLES */
+    int my_rank;
+    int p;                          //#processes
+    MPI_Comm comm_world_copy;       //copy of MPI_COMM_WORLD
+    MPI_Comm comm_cart;    //new communicator related to processes topology, which is related to a super-block in matrix A
+    //communicators related to the single mesh rows and to the single mesh columns
+    MPI_Comm *row_comms;    //communicators related to the mesh rows
+    MPI_Comm *col_comms;    //communicators related to the mesh columns
+    //processes groups
+    MPI_Group total_group;  //group associated to comm_world_copy communicator
+    MPI_Group *row_groups;  //groups associated to the single communicators related to the mesh rows
+    MPI_Group *col_groups;  //groups associated to the single communicators related to the mesh columns 
+
+    /* VARIABLES USEFUL TO DIVIDE THE WORK BETWEEN THE PROCESSES */
+    //array representing the number of processes on each dimension of super-block in matrix A (super-block = set of p blocks where each block is assigned to a different process)
+    int proc_dims[DIMS];
+    //number of rows and columns of local_A, local_B and local_C for the current process
+    int my_rows_A;
+    int my_cols_A;
+    int my_rows_B;
+    int my_cols_B;
+    int my_rows_C;
+    int my_cols_C;
+
+    /* AUXILIARY VARIABLES */
+    int periods[DIMS];      //array indicating if each dimension of processes topology has to be periodic (i.e. circular) or not
+    //data structures
+    int **all_cart_coords;  //array associating the rank with the corresponding mesh indexes foreach process (where rank = index of all_cart_coords)
+    int **row_ranks_list;   //array representing all the process ranks foreach row of the mesh (where row of the mesh = index of row_ranks_list)
+    int **col_ranks_list;   //array representing all the process ranks foreach column of the mesh (where column of the mesh = index of col_ranks_list)
+
+    /* LOOP INDEXES */
+    int i;
+    int j;
+    int k;
+
+
+
+    /* MPI INITIALIZATION */
+    MPI_Init(&argc, &argv);
+    MPI_Comm_dup(MPI_COMM_WORLD, &comm_world_copy); //duplication of MPI_COMM_WORLD communicator
+    MPI_Comm_size(comm_world_copy, &p);
+    MPI_Comm_rank(comm_world_copy, &my_rank);
+
+    /* CHECK OF #ARGUMENTS PASSED BY THE USER */
+    if(argc < 6) {
+        if(my_rank == 0) {
+            printf("Usage: MPI-prod K N M kb mb\n");
+            fflush(stdout);
+        }
+        return 0;
+    }
+
+
+
+    /* CREATION OF ALL COMMUNICATORS */
+    //initialization of periods with only false + initialization of proc_dims with only 0
+    for(i=0; i<DIMS; i++) {
+        periods[i] = NO;
+        proc_dims[i] = 0;   //proc_dims[0] = #rows of processes mesh; proc_dims[1] = #columns of processes mesh
+    }
+
+    //definition (and following creation) of the most squared possible topology (mesh) for the p processes
+    MPI_Dims_create(p, DIMS, proc_dims);    //after here, proc_dims = [#processes as rows of the mesh; #processes as columns of the mesh]
+    MPI_Cart_create(comm_world_copy, DIMS, proc_dims, periods, NO, &comm_cart);
+    //definition of the processes group which partecipate to comm_world_copy communicator (i.e. group of all the processes)
+    MPI_Comm_group(comm_world_copy, &total_group);
+
+    //initialization of the array associating the rank with the corresponding mesh indexes foreach process
+    all_cart_coords = create_all_cart_coords(p, comm_world_copy, comm_cart);
+
+    //initialization of the array of the processes rows (where each row is represented by an array of ranks)
+    row_ranks_list = create_row_ranks_list(proc_dims[0], proc_dims[1], p, all_cart_coords, comm_world_copy);
+    //initialization of the array of the processes columns (where each column is represented by an array of ranks)
+    col_ranks_list = create_col_ranks_list(proc_dims[0], proc_dims[1], p, all_cart_coords, comm_world_copy);
+
+    //memory allocation for row groups, col_groups, row_comms and col_comms
+    row_groups = (MPI_Group *)malloc(proc_dims[0]*sizeof(MPI_Group));   //one group foreach mesh row
+    col_groups = (MPI_Group *)malloc(proc_dims[1]*sizeof(MPI_Group));   //one group foreach mesh column
+    row_comms = (MPI_Comm *)malloc(proc_dims[0]*sizeof(MPI_Comm));      //one communicator foreach mesh row
+    col_comms = (MPI_Comm *)malloc(proc_dims[1]*sizeof(MPI_Comm));      //one communicator foreach mesh column
+    if(!(row_comms && col_comms))
+        MPI_Abort(comm_world_copy, EXIT_FAILURE);
+
+    //get all the sub-groups related to the single mesh rows 
+    for(i=0; i<proc_dims[0]; i++) { //proc_dims[0] = #mesh rows
+        //remember that we have a number of sub-groups equal to the number of mesh rows and a number of processes in each sub-group equal to the number of mesh columns.
+        MPI_Group_incl(total_group, proc_dims[1], row_ranks_list[i], &row_groups[i]);
+        MPI_Comm_create(comm_world_copy, row_groups[i], &row_comms[i]);   //communicators row_comms[i] will be used in MPI_Scatterv().
+    }
+    //get all the sub-groups related to the singole mesh columns
+    for(i=0; i<proc_dims[1]; i++) { //proc_dims[1] = #mesh columns
+        //remember that we have a number of sub-groups equal to the number of mesh columns and a number of processes in each sub-group equal to the number of mesh rows.
+        MPI_Group_incl(total_group, proc_dims[0], col_ranks_list[i], &col_groups[i]);
+        MPI_Comm_create(comm_world_copy, col_groups[i], &col_comms[i]);   //communicators col_comms[i] will be used in MPI_Scatterv().
+    }
+
+
+
+    /* INFORMATION EXCHANGE */
+    //we assume that only process 0 initially knows the values of K, N, M, kb, mb.
+    if(my_rank == 0) {
+        //user input acquisition
+        K = atoi(argv[1]);
+        N = atoi(argv[2]);
+        M = atoi(argv[3]);
+        kb = atoi(argv[4]);
+        mb = atoi(argv[5]);
+    }
+
+    //process 0 sends to all the other processes the acquired information.
+    MPI_Bcast(&K, 1, MPI_INT, 0, comm_world_copy);
+    MPI_Bcast(&N, 1, MPI_INT, 0, comm_world_copy);
+    MPI_Bcast(&M, 1, MPI_INT, 0, comm_world_copy);
+    MPI_Bcast(&kb, 1, MPI_INT, 0, comm_world_copy);
+    MPI_Bcast(&mb, 1, MPI_INT, 0, comm_world_copy);
+
+    /* DIVISION, ALLOCATION AND INITIALIZATION OF THE MATRIXES */
+    //get the number of rows and columns of local_A for the current process
+    my_rows_A = get_local_dim_A(M, mb, proc_dims, all_cart_coords, my_rank, 0);
+    my_cols_A = get_local_dim_A(K, kb, proc_dims, all_cart_coords, my_rank, 1);
+    //get also the number of rows and columns of local_B and local_C for the current process
+    my_rows_B = my_cols_A;
+    my_cols_B = N;
+    my_rows_C = my_rows_A;
+    my_cols_C = N;
+
+    //allocate the local matrices
+    local_A = (float *)malloc(my_rows_A*my_cols_A*sizeof(float));
+    local_B = (float *)malloc(my_rows_B*my_cols_B*sizeof(float));
+    local_C = (float *)malloc(my_rows_C*my_cols_C*sizeof(float));
+    if(!(local_A && local_B && local_C))
+        MPI_Abort(comm_world_copy, EXIT_FAILURE);
+
+    //local_A has to be initialized by all the processes.
+    for(i=0; i<my_rows_A*my_cols_A; i++) {
+        local_A[i] = rand() / RAND_DIV;
+    }
+
+    //local_B has to be initialized by the processes at first row of the mesh. Its content has to be sent in broadcast on col_comms[i] (foreach i).
+    if(all_cart_coords[my_rank][0] == 0) {  //i.e. if I am a process at first row of the mesh
+        for(i=0; i<my_rows_B*my_cols_B; i++) {
+            local_B[i] = rand() / RAND_DIV;
+        }
+        
+    }
+    for(j=0; j<proc_dims[1]; j++) {
+        if(col_comms[j] != MPI_COMM_NULL)
+            MPI_Bcast(local_B, my_rows_B*my_cols_B, MPI_FLOAT, 0, col_comms[j]);
+    }
+
+    //local_C has to be initialized by the processes at first column of the mesh. Its content has to be sent in broadcast on row_comms[i] (foreach i).
+    if(all_cart_coords[my_rank][1] == 0) {  //i.e. if I am a process at first row of the mesh
+        for(i=0; i<my_rows_C*my_cols_C; i++) {
+            local_C[i] = rand() / RAND_DIV;
+        }
+        
+    }
+    for(j=0; j<proc_dims[0]; j++) {
+        if(row_comms[j] != MPI_COMM_NULL)
+            MPI_Bcast(local_C, my_rows_C*my_cols_C, MPI_FLOAT, 0, row_comms[j]);
+    }
+
+
+    /* END OF THE EXECUTION */
+    MPI_Finalize();
+    return 0;
+
+}
+
+
+
+
+
+
+/*
 int main(int argc, char **argv) {
     //informazioni che il processo 0 deve inviare agli altri processi
     int big_k;  //K
@@ -419,3 +789,4 @@ int main(int argc, char **argv) {
     return 0;
 
 }
+*/
