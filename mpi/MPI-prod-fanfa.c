@@ -135,7 +135,7 @@ int **create_col_ranks_list(int num_mesh_rows, int num_mesh_cols, int p, int **a
 
 
 /* function which has the responsibility to calculate the number of rows (or, alternatively, the number of columns) of matrix A 
- * ruled by the current process.
+ * ruled by the current process. If dim == 0, we are calculating the number of rows; else, we are calculating the number of columns.
  *
  * IDEA:
  * rows_superblock = mb*proc_dims[0]
@@ -161,6 +161,10 @@ int get_local_dim_A(int matrix_dim, int block_dim, int *proc_dims, int **all_car
     int exceeding_cols;
     //minimum number of rows (m) and minimum number of columns (k) of local_A for all the processes
     int m_or_k;
+
+    //check important in order to be sure the code works fine
+    if(dim != 0)
+        dim = 1;
 
     //get the number of rows or columns in each (complete) superblock
     rows_or_cols_superblock = block_dim*proc_dims[dim];
@@ -239,7 +243,7 @@ int main(int argc, char **argv) {
     /* LOOP INDEXES */
     int i;
     int j;
-    int k;
+    int l;
 
 
 
@@ -248,6 +252,8 @@ int main(int argc, char **argv) {
     MPI_Comm_dup(MPI_COMM_WORLD, &comm_world_copy); //duplication of MPI_COMM_WORLD communicator
     MPI_Comm_size(comm_world_copy, &p);
     MPI_Comm_rank(comm_world_copy, &my_rank);
+
+
 
     /* CHECK OF #ARGUMENTS PASSED BY THE USER */
     if(argc < 6) {
@@ -322,10 +328,12 @@ int main(int argc, char **argv) {
     MPI_Bcast(&kb, 1, MPI_INT, 0, comm_world_copy);
     MPI_Bcast(&mb, 1, MPI_INT, 0, comm_world_copy);
 
+
+
     /* DIVISION, ALLOCATION AND INITIALIZATION OF THE MATRIXES */
     //get the number of rows and columns of local_A for the current process
-    my_rows_A = get_local_dim_A(M, mb, proc_dims, all_cart_coords, my_rank, 0);
-    my_cols_A = get_local_dim_A(K, kb, proc_dims, all_cart_coords, my_rank, 1);
+    my_rows_A = get_local_dim_A(M, mb, proc_dims, all_cart_coords, my_rank, 0); //last parameter == 0: we are counting rows number.
+    my_cols_A = get_local_dim_A(K, kb, proc_dims, all_cart_coords, my_rank, 1); //last parameter == 1: we are counting columns number.
     //get also the number of rows and columns of local_B and local_C for the current process
     my_rows_B = my_cols_A;
     my_cols_B = N;
@@ -345,7 +353,7 @@ int main(int argc, char **argv) {
     }
 
     //local_B has to be initialized by the processes at first row of the mesh. Its content has to be sent in broadcast on col_comms[i] (foreach i).
-    if(all_cart_coords[my_rank][0] == 0) {  //i.e. if I am a process at first row of the mesh
+    if(all_cart_coords[my_rank][0] == 0) {  //i.e. if I am a process at first row of the mesh --> i.e. if my_mesh_row == 0
         for(i=0; i<my_rows_B*my_cols_B; i++) {
             local_B[i] = rand() / RAND_DIV;
         }
@@ -356,17 +364,35 @@ int main(int argc, char **argv) {
             MPI_Bcast(local_B, my_rows_B*my_cols_B, MPI_FLOAT, 0, col_comms[j]);
     }
 
-    //local_C has to be initialized by the processes at first column of the mesh. Its content has to be sent in broadcast on row_comms[i] (foreach i).
-    if(all_cart_coords[my_rank][1] == 0) {  //i.e. if I am a process at first row of the mesh
+    //local_C has to be initialized by the processes at first column of the mesh. Its content has NOT to be sent in broadcast on row_comms[i] (foreach i)
+    //because in the end the different outputs of local_C for the different processes have to be summed and intial value of matrix C shall be counted only once.
+    if(all_cart_coords[my_rank][1] == 0) {  //i.e. if I am a process at first row of the mesh --> i.e. if my_mesh_col == 0
         for(i=0; i<my_rows_C*my_cols_C; i++) {
             local_C[i] = rand() / RAND_DIV;
         }
-        
+    } else {
+        memset(local_C, 0, my_rows_C*my_cols_C*sizeof(float));
     }
-    for(j=0; j<proc_dims[0]; j++) {
-        if(row_comms[j] != MPI_COMM_NULL)
-            MPI_Bcast(local_C, my_rows_C*my_cols_C, MPI_FLOAT, 0, row_comms[j]);
+
+
+
+    /* CALCULATE PARTIAL RESULTS OF C <-- A*B + C */
+    for(i=0; i<my_rows_A; i++) {   //TODO: which loop ordering is the most efficient?
+        for(j=0; j<my_cols_B; j++) {
+            for(l=0; l<my_cols_A; l++) {
+                local_C[i*my_cols_C+j] += local_A[i*my_cols_A+l]*local_B[l*my_cols_B+j];
+
+            }
+
+        }
+
     }
+
+
+
+    /* GATHER OF MATRIX C (OUTPUT) */
+    //TODO
+
 
 
     /* END OF THE EXECUTION */
