@@ -10,7 +10,7 @@
 #define NO 0
 #define YES NO+1
 
-//#define DEBUG
+#define DEBUG
 
 
 
@@ -289,6 +289,8 @@ int main(int argc, char **argv) {
     MPI_Comm_size(comm_world_copy, &p);
     MPI_Comm_rank(comm_world_copy, &my_rank);
     tag = 0;
+    //plant seed for successive rand() invokations
+    srand(my_rank+1);   //srand(0) == srand(1)
 
 
 
@@ -427,6 +429,36 @@ int main(int argc, char **argv) {
 
 
 
+    /* DEBUG PRINTS */
+    #ifdef DEBUG
+    if(my_rank == 0) {
+        printf("PROCESS %d\n", my_rank);
+        printf("\nMATRIX A\n");
+        for(i=0; i<my_rows_A; i++) {
+            for(j=0; j<my_cols_A; j++) {
+                printf("%f  ", local_A[i*my_cols_A+j]);
+            }
+            printf("\n");
+        }
+        printf("\nMATRIX B\n");
+        for(i=0; i<my_rows_B; i++) {
+            for(j=0; j<my_cols_B; j++) {
+                printf("%f  ", local_B[i*my_cols_B+j]);
+            }
+            printf("\n");
+        }
+        printf("\nMATRIX C (INPUT)\n");
+        for(i=0; i<my_rows_C; i++) {
+            for(j=0; j<my_cols_C; j++) {
+                printf("%f  ", local_C[i*my_cols_C+j]);
+            }
+            printf("\n");
+        }
+    }
+    #endif
+
+
+
     /* CALCULATE PARTIAL RESULTS OF C <-- A*B + C */
     for(i=0; i<my_rows_A; i++) {   //TODO: which loop ordering is the most efficient?
         for(j=0; j<my_cols_B; j++) {
@@ -440,24 +472,14 @@ int main(int argc, char **argv) {
 
     /* DEBUG PRINTS */
     #ifdef DEBUG
-    //printf("Rank: %d - A: %dx%d - B: %dx%d - C:%dx%d\n", my_rank, my_rows_A, my_cols_A, my_rows_B, my_cols_B, my_rows_C, my_cols_C);
     if(my_rank == 0) {
-        printf("proc_dims[0] = %d - proc_dims[1] = %d", proc_dims[0], proc_dims[1]);
-        printf("\nROW RANKS LIST");
-        for(i=0; i<proc_dims[0]; i++) {
-            printf("\n");
-            for(j=0; j<proc_dims[1]; j++) {
-                printf(" %d ", row_ranks_list[i][j]);
+        printf("\nMATRIX C (LOCAL OUTPUT)\n");
+        for(i=0; i<my_rows_C; i++) {
+            for(j=0; j<my_cols_C; j++) {
+                printf("%f  ", local_C[i*my_cols_C+j]);
             }
-        }
-        printf("\nCOLUMN RANKS LIST");
-        for(i=0; i<proc_dims[1]; i++) {
             printf("\n");
-            for(j=0; j<proc_dims[0]; j++) {
-                printf(" %d ", col_ranks_list[i][j]);
-            }
         }
-        printf("\n\n\n");
     }
     #endif
 
@@ -470,11 +492,9 @@ int main(int argc, char **argv) {
             for(j=1; j<proc_dims[1]; j++) { //loop on all the processes belonging to the same mesh row (except itself)
 
                 if(all_cart_coords[my_rank][1] == j && row_comms[i] != MPI_COMM_NULL) {   //one process at time has to send its output to the row mesh representative.
-                    //printf("TE PREGO 1 - %d\n", my_rank);
                     MPI_Send(local_C, my_rows_C*my_cols_C, MPI_FLOAT, 0, tag, row_comms[i]);
                 }
                 else if(all_cart_coords[my_rank][1] == 0 && row_comms[i] != MPI_COMM_NULL) {
-                    //printf("TE PREGO 2 - %d\n", my_rank);
                     //row mesh representative receives the output and sums it with local_C (iterating on all the processes of mesh row).
                     MPI_Recv(other_C, my_rows_C*my_cols_C, MPI_FLOAT, j, tag, row_comms[i], &status);
                     //sum: local_C = local_C + other_C
@@ -494,20 +514,33 @@ int main(int argc, char **argv) {
             
             for(j=0; j<ceil(1.0*my_rows_C/mb); j++) {   //loop on all the strips of matrix C belonging to the process on which we are iterating (ceil==roof)
                 if(all_cart_coords[my_rank][0] == i && col_comms[0] != MPI_COMM_NULL) {   //one process at time sends its local_C to process 0 (included process 0 itself).
-                    //printf("TE PREGO 3 - %d\n", my_rank);
-                    MPI_Send(&local_C[j*N*mb], N*get_min(mb, my_rows_C-j*mb), MPI_FLOAT, 0, tag, col_comms[0]);
-                }   //my_rows_C-j*mb = "remains"
+                    MPI_Send(&local_C[j*N*mb], N*get_min(mb, my_rows_C-j*mb), MPI_FLOAT, 0, tag, col_comms[0]); //my_rows_C-j*mb = "remains"
+                } 
                 if(all_cart_coords[my_rank][0] == 0 && col_comms[0] != MPI_COMM_NULL) { //process 0 receives local_C from the sender and gathers it into matrix C.
                     if(num_recv == max_recv)    //if process 0 has received all the matrix C strips, it shall not invoke MPI_Recv() anymore.
                         break;
-                    //printf("TE PREGO 4 - %d\n", my_rank);
-                    MPI_Recv(&C[(j*proc_dims[0]+i)*mb], N*get_min(mb, my_rows_C-j*mb), MPI_FLOAT, i, tag, col_comms[0], &status); //my_rows-j*mb = "remains"
-                    //(j*proc_dims[0]+i)*mb = initial offset of matrix C from which we have to copy strip j of local copy of C associated to i-th process
+                    MPI_Recv(&C[(j*proc_dims[0]+i)*mb*N], N*get_min(mb, my_rows_C-j*mb), MPI_FLOAT, i, tag, col_comms[0], &status); //my_rows-j*mb = "remains"
+                    //(j*proc_dims[0]+i)*mb*N = initial offset of matrix C from which we have to copy strip j of local copy of C associated to i-th process
                     num_recv++;
                 }
             }
         }
     }
+
+
+
+    /* DEBUG PRINTS */
+    #ifdef DEBUG
+    if(my_rank == 0) {
+        printf("\nMATRIX C (GLOBAL OUTPUT)\n");
+        for(i=0; i<M; i++) {
+            for(j=0; j<N; j++) {
+                printf("%f  ", C[i*N+j]);
+            }
+            printf("\n");
+        }
+    }
+    #endif
 
 
 
