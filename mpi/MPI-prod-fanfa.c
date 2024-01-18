@@ -14,6 +14,8 @@
 
 
 
+//TODO: execution of code by varying num of processes on course server
+
 /* function which has the responsibility to allocate the array representing the association rank - mesh coordinates for all the processes */
 int **create_all_cart_coords(int p, MPI_Comm comm_world_copy, MPI_Comm comm_cart) {
     //local auxiliary variables
@@ -270,6 +272,9 @@ int main(int argc, char **argv) {
     int **all_cart_coords;  //array associating the rank with the corresponding mesh indexes foreach process (where rank = index of all_cart_coords)
     int **row_ranks_list;   //array representing all the process ranks foreach row of the mesh (where row of the mesh = index of row_ranks_list)
     int **col_ranks_list;   //array representing all the process ranks foreach column of the mesh (where column of the mesh = index of col_ranks_list)
+    //counters
+    int num_recv;   //variable counting the number of times process 0 is invoking MPI_Recv() during the final gather operation. It helps preventing deadlocks.
+    int max_recv;   //variable indicating the max number of times process 0 has to invoke MPI_Recv() during the final gather operation.
 
     /* LOOP INDEXES */
     int i;
@@ -452,21 +457,24 @@ int main(int argc, char **argv) {
                 printf(" %d ", col_ranks_list[i][j]);
             }
         }
-        printf("\n");
+        printf("\n\n\n");
     }
     #endif
 
-    
 
+    
     /* GATHER OF MATRIX C (OUTPUT) */
     //PHASE 1: processes on the same mesh row have the outputs of matrix C related to the same matrix entries: they simply have to be summed.
     for(i=0; i<proc_dims[0]; i++) { //loop on all the mesh rows
         if(all_cart_coords[my_rank][0] == i) {  //condition: belonging to i-th mesh row
             for(j=1; j<proc_dims[1]; j++) { //loop on all the processes belonging to the same mesh row (except itself)
 
-                if(all_cart_coords[my_rank][1] == j && row_comms[i] != MPI_COMM_NULL)   //one process at time has to send its output to the row mesh representative.
+                if(all_cart_coords[my_rank][1] == j && row_comms[i] != MPI_COMM_NULL) {   //one process at time has to send its output to the row mesh representative.
+                    //printf("TE PREGO 1 - %d\n", my_rank);
                     MPI_Send(local_C, my_rows_C*my_cols_C, MPI_FLOAT, 0, tag, row_comms[i]);
+                }
                 else if(all_cart_coords[my_rank][1] == 0 && row_comms[i] != MPI_COMM_NULL) {
+                    //printf("TE PREGO 2 - %d\n", my_rank);
                     //row mesh representative receives the output and sums it with local_C (iterating on all the processes of mesh row).
                     MPI_Recv(other_C, my_rows_C*my_cols_C, MPI_FLOAT, j, tag, row_comms[i], &status);
                     //sum: local_C = local_C + other_C
@@ -479,15 +487,23 @@ int main(int argc, char **argv) {
     }
 
     //PHASE 2: processes on different mesh rows have the outputs of matrix C related to different matrix entries: they have to be gathered (again with send & recv).
+    max_recv = ceil(1.0*M/mb);  //max_recv corresponds to the number of strips in which matrix C is divided.
+    num_recv = 0;
     for(i=0; i<proc_dims[0]; i++) {  //loop on all the processes belonging to the first mesh column (i.e. loop on all the mesh rows)
         if(all_cart_coords[my_rank][1] == 0) {  //condition: belonging to first mesh column
             
-            for(j=0; j<ceil(my_rows_C/mb); j++) {   //loop on all the strips of matrix C belonging to the process on which we are iterating (ceil==roof)
-                if(all_cart_coords[my_rank][0] == i && col_comms[0] != MPI_COMM_NULL)   //one process at time sends its local_C to process 0 (included process 0 itself).
-                    MPI_Send(&local_C[j*N*mb], N*get_min(mb, my_rows_C-j*mb), MPI_FLOAT, 0, tag, col_comms[0]);   //my_rows_C-j*mb = "remains"
-                else if(all_cart_coords[my_rank][0] == 0 && col_comms[0] != MPI_COMM_NULL) { //process 0 receives local_C from the sender and gathers it into matrix C.
+            for(j=0; j<ceil(1.0*my_rows_C/mb); j++) {   //loop on all the strips of matrix C belonging to the process on which we are iterating (ceil==roof)
+                if(all_cart_coords[my_rank][0] == i && col_comms[0] != MPI_COMM_NULL) {   //one process at time sends its local_C to process 0 (included process 0 itself).
+                    //printf("TE PREGO 3 - %d\n", my_rank);
+                    MPI_Send(&local_C[j*N*mb], N*get_min(mb, my_rows_C-j*mb), MPI_FLOAT, 0, tag, col_comms[0]);
+                }   //my_rows_C-j*mb = "remains"
+                if(all_cart_coords[my_rank][0] == 0 && col_comms[0] != MPI_COMM_NULL) { //process 0 receives local_C from the sender and gathers it into matrix C.
+                    if(num_recv == max_recv)    //if process 0 has received all the matrix C strips, it shall not invoke MPI_Recv() anymore.
+                        break;
+                    //printf("TE PREGO 4 - %d\n", my_rank);
                     MPI_Recv(&C[(j*proc_dims[0]+i)*mb], N*get_min(mb, my_rows_C-j*mb), MPI_FLOAT, i, tag, col_comms[0], &status); //my_rows-j*mb = "remains"
                     //(j*proc_dims[0]+i)*mb = initial offset of matrix C from which we have to copy strip j of local copy of C associated to i-th process
+                    num_recv++;
                 }
             }
         }
