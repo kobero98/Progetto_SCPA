@@ -250,9 +250,9 @@ int main(int argc, char **argv) {
             MPI_File_read(fdR, &NR, 1, MPI_INT, MPI_STATUS_IGNORE);
             double maxErr=0.0;
             int countt=0;
-            MPI_File_seek(fdC,my_coord[0]*N*sizeof(int),MPI_SEEK_CUR);
+            MPI_File_seek(fdR,my_coord[0]*N*sizeof(int),MPI_SEEK_CUR);
             for(int i=0;i<m;i++){
-                MPI_File_seek(fdB,my_coord[1]*sizeof(int),MPI_SEEK_CUR); 
+                MPI_File_seek(fdR,my_coord[1]*sizeof(int),MPI_SEEK_CUR); 
                 for(int j=0;j<n;j++){
                     int data;
                     MPI_File_read(fdR, &(data),1, MPI_INT, MPI_STATUS_IGNORE);

@@ -13,30 +13,42 @@ int main(int argc, char *argv[]) {
     int N;
     int K;
     int seed;
+    MPI_Comm comm_world_copy;
+
     if(argc!=6){
-        printf("eseguire con ./<nomeEseguibile> <seed> <nomeCartela> <M> <N> <K>\n");
+        printf("eseguire con ./<nomeEseguibile> <seed> <nomeCartella> <M> <N> <K>\n");
         return -1;
     }
+
+    MPI_Comm_dup(MPI_COMM_WORLD, &comm_world_copy);
+
     seed=atoi(argv[1]);  
     M=atoi(argv[3]);
     N=atoi(argv[4]);
     K=atoi(argv[5]);
     if(M == 0 || N==0|| K==0){
         printf("malloc per la creazione dei file fallita\n");
-        MPI_Abort(MPI_COMM_WORLD, -1);
+        MPI_Abort(comm_world_copy, -1);
         MPI_Finalize();
         return -1;
     }
     int rank, size; 
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &size);
+    MPI_Comm_rank(comm_world_copy, &rank);
+    MPI_Comm_size(comm_world_copy, &size);
+
+    //check numero di processi
+    if(size < 3) {
+        printf("Sono necessari 3 processi per eseguire il programma\n");
+        MPI_Abort(comm_world_copy, EXIT_FAILURE);
+    }
+
     MPI_File file;
     MPI_File fileShadow;
     char *filename=(char*)malloc(sizeof(char)*(strlen(argv[2])+2));
     char *filenameShadow=(char*)malloc(sizeof(char)*(strlen(argv[2])+6));
     if(filename==NULL || filenameShadow==NULL ){
         printf("malloc per la creazione dei file fallita\n");
-        MPI_Abort(MPI_COMM_WORLD, -1);
+        MPI_Abort(comm_world_copy, -1);
         MPI_Finalize();
         return -1;
     }
