@@ -11,8 +11,8 @@ for K in {100,1000,2000,3000,5000}
 do 
     dir="matrix_Seed_$seed-$K"
     echo ciao $dir $seed
-    mkdir $dir
-    mpirun mgmpi $seed $dir $K $K $K
+    #mkdir $dir
+    #mpirun -n 3 mgmpi $seed $dir $K $K $K
     for p in {1,5,10,15,20}
     do
         for n in {1}

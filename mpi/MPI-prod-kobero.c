@@ -166,7 +166,8 @@ int main(int argc, char **argv) {
     int resto_righe = N-n*(proc_dims[0]*mb);
     if(my_coord[1]<resto_colonne) n++;
     if(my_coord[0]<resto_righe) m++;
-    printf("%d %d\n",n,m);
+    printf(" %d %d\n",proc_dims[0],proc_dims[1]);
+    printf("%d) %d %d %d\n",my_rank,n,m,K);
 
     int* localA = (int *) malloc(sizeof(int)*m*K);
     int* localB = (int *) malloc(sizeof(int)*n*K);
@@ -183,8 +184,8 @@ int main(int argc, char **argv) {
         MPI_File_seek(fdA,((proc_dims[0]-1)*K)*sizeof(int),MPI_SEEK_CUR);
     }
     //inizializzo localB
+    MPI_File_seek(fdB,my_coord[1]*sizeof(int),MPI_SEEK_CUR); 
     for(int i=0;i<K;i++){
-        MPI_File_seek(fdB,my_coord[1]*sizeof(int),MPI_SEEK_CUR); 
         for(int j=0;j<n;j++){
             int data;
             MPI_File_read(fdB, &(data),1, MPI_INT, MPI_STATUS_IGNORE);
@@ -194,9 +195,9 @@ int main(int argc, char **argv) {
     }
     //inizializzo localC
     MPI_File_seek(fdC,my_coord[0]*N*sizeof(int),MPI_SEEK_CUR);
-    for(int i=0;i<m;i++){
-        MPI_File_seek(fdB,my_coord[1]*sizeof(int),MPI_SEEK_CUR); 
-        for(int j=0;j<n;j++){
+    for(i=0;i<m;i++){
+        MPI_File_seek(fdC,my_coord[1]*sizeof(int),MPI_SEEK_CUR); 
+        for(j=0;j<n;j++){
             int data;
             MPI_File_read(fdC, &(data),1, MPI_INT, MPI_STATUS_IGNORE);
             localC[n*i+j]=data;
@@ -205,21 +206,65 @@ int main(int argc, char **argv) {
         MPI_File_seek(fdC,((proc_dims[0]-1)*N)*sizeof(int),MPI_SEEK_CUR);
     }
     
+    //stampa la matrice c per i vari processi
+    // MPI_Barrier(comm_world_copy);
+    // startAftearCreate=MPI_Wtime();
+    // for(int g=0;g<p;g++){
+    //     if(my_rank==g){
+    //         printf("rank %d (%d,%d)\n",my_rank,my_coord[0],my_coord[1]);
+    //         for(i=0;i<m;i++){
+    //             for(j=0;j<n;j++){
+    //                 printf("%d ",localC[i*n+j]);
+    //             }
+    //             printf("\n");
+    //         }
+    //     }
+    //     MPI_Barrier(comm_world_copy);
+    // }
+    //stampiamo la matrice B
     MPI_Barrier(comm_world_copy);
     startAftearCreate=MPI_Wtime();
-    printf("%d %d %d \n",m,n,K);
+    for(int g=0;g<p;g++){
+        if(my_rank==g){
+            printf("rank %d (%d,%d)\n",my_rank,my_coord[0],my_coord[1]);
+            for(i=0;i<K;i++){
+                for(j=0;j<n;j++){
+                    printf("%d ",localB[j*K+i]);
+                }
+                printf("\n");
+            }
+        }
+        MPI_Barrier(comm_world_copy);
+    }
+    //Stampo matrice A
+    // MPI_Barrier(comm_world_copy);
+    // startAftearCreate=MPI_Wtime();
+    // for(int g=0;g<p;g++){
+    //     if(my_rank==g){
+    //         printf("rank %d (%d,%d) (m%d,k%d)\n",my_rank,my_coord[0],my_coord[1],m,K);
+    //         for(i=0;i<m;i++){
+    //             for(j=0;j<K;j++){
+    //                 printf("(%d)%d ",my_rank,localA[i*K+j]);
+    //             }
+    //             printf("\n");
+    //         }
+    //     printf("\n");
+    //     }
+    //     MPI_Barrier(comm_world_copy);
+    // }
+    
+    
     //Calcolo Cooutazionale
     calcolo_Computazionale(localA,localB,localC,m,n,K);
     
-    printf("ciao\n");
     MPI_Barrier(comm_world_copy);
     end=MPI_Wtime();
-    nomeFileCResult=(char*)malloc(sizeof(argv[1])+6);
+    nomeFileCResult=(char*)malloc(strlen(argv[1])+6);
     sprintf(nomeFileCResult,"%s/CRes\0",argv[1]);
     //calcolo MAX DIFF
     if(p==1){
             //in caso sono in computazione singola scrivo i risultati sul file
-            char *nomeFileCResultShadow=(char*)malloc(sizeof(argv[1])+10);
+            char *nomeFileCResultShadow=(char*)malloc(strlen(argv[1])+10);
             sprintf(nomeFileCResultShadow,"%s/CRes.txt\0",argv[1]);
             MPI_File_open(MPI_COMM_SELF, nomeFileCResult, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &fdR);
             MPI_File_open(MPI_COMM_SELF, nomeFileCResultShadow, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &fdRShadow);
@@ -241,14 +286,18 @@ int main(int argc, char **argv) {
                 MPI_File_write(fdR, &(localC[i*N+N-1]), 1, MPI_INT, MPI_STATUS_IGNORE);
                 MPI_File_write(fdRShadow, &buffer2, strlen(buffer2), MPI_CHAR, MPI_STATUS_IGNORE);
             }
+
+            MPI_File_close(&fdR);
+            MPI_File_close(&fdRShadow);
     }else{
         int MR,NR;
-        int res=MPI_File_open(MPI_COMM_WORLD, nomeFileCResult, MPI_MODE_RDONLY, MPI_INFO_NULL, &fdR);
+        int res=MPI_File_open(MPI_COMM_SELF, nomeFileCResult, MPI_MODE_RDONLY, MPI_INFO_NULL, &fdR);
         if(res==MPI_SUCCESS){
            //controllo la differenza solo se esiste il file dei risultati 
             MPI_File_read(fdR, &MR,1, MPI_INT, MPI_STATUS_IGNORE);
             MPI_File_read(fdR, &NR, 1, MPI_INT, MPI_STATUS_IGNORE);
-            double maxErr=0.0;
+            // double maxErr=0.0;
+            int maxErr=0;
             int countt=0;
             MPI_File_seek(fdR,my_coord[0]*N*sizeof(int),MPI_SEEK_CUR);
             for(int i=0;i<m;i++){
@@ -257,6 +306,7 @@ int main(int argc, char **argv) {
                     int data;
                     MPI_File_read(fdR, &(data),1, MPI_INT, MPI_STATUS_IGNORE);
                     if(maxErr<(localC[i*n+j] - data)){
+                        printf("%d) row=%d column=%d %d insted of %d\n",my_rank,i,j,localC[i*n+j],data);
                         maxErr = localC[i*n+j] - data;
                         countt++;
                     }
@@ -264,7 +314,8 @@ int main(int argc, char **argv) {
                 }
                 MPI_File_seek(fdR,((proc_dims[0]-1)*N)*sizeof(int),MPI_SEEK_CUR);
             }
-            printf("%d)Max Error=%f Number error=%d\n",my_rank,maxErr,countt);  
+            printf("%d)Max Error=%d Number error=%d\n",my_rank,maxErr,countt);
+            MPI_File_close(&fdR);
         }
     }  
     free(localA);
