@@ -8,7 +8,12 @@
 #define NO (0)
 #define YES NO+1
 #define DEBUG
-#define CONVERTOC(i,j) 2*sizeof(int) + sizeof(int)*i*(proc_dims[0])*N + sizeof(int)*my_coord[0]*N +sizeof(int)*j*(proc_dims[1])+sizeof(int)*my_coord[1]
+
+#define CONVERTOA(i,j) 2*sizeof(int) + sizeof(int)*i*(proc_dims[0])*N + sizeof(int)*my_coord[0]*N + sizeof(int)*j
+#define CONVERTOB(i,j) 2*sizeof(int) + sizeof(int)*i*(proc_dims[0])*N + sizeof(int)*j*(proc_dims[1])+sizeof(int)*my_coord[1]
+#define CONVERTOC(i,j) 2*sizeof(int) + sizeof(int)*i*(proc_dims[0])*N + sizeof(int)*my_coord[0]*N + sizeof(int)*j*(proc_dims[1])+sizeof(int)*my_coord[1]
+
+
 //va valutato il giusto ordine di operazioni
 //e si possono fare meglio di n^3 operazioni?
 void calcolo_Computazionale(int* localA,int* localB,int* localC,int m,int n,int k){
@@ -71,6 +76,8 @@ int main(int argc, char **argv) {
     
     FILE *FileRes;
     FILE *cFile;
+    FILE *aFile;
+    FILE *bFile;
     //Elaborazione matrice singola elaborazione fatta solo dal processo 0
     float* C_SingoleCase;
     //serve per misurare la correttezza del programma 
@@ -113,23 +120,24 @@ int main(int argc, char **argv) {
     sprintf(nomeFileC,"%s/C\0",argv[1]);
 
     // Apri il file per la lettura
-    openResult = MPI_File_open(MPI_COMM_SELF, nomeFileA, MPI_MODE_RDONLY, MPI_INFO_NULL, &fdA);
-    if (openResult != MPI_SUCCESS) {
+    //openResult = MPI_File_open(MPI_COMM_SELF, nomeFileA, MPI_MODE_RDONLY, MPI_INFO_NULL, &fdA);
+    aFile=fopen(nomeFileA,"r");
+    if (aFile == NULL) {
         // Gestisci l'errore e termina il programma
         printf("Errore nell'apertura del file A.\n");
         MPI_Abort(MPI_COMM_WORLD, openResult);
         MPI_Finalize();
         return 1;
     }
-    openResult = MPI_File_open(MPI_COMM_SELF,nomeFileB, MPI_MODE_RDONLY, MPI_INFO_NULL, &fdB);
-    if (openResult != MPI_SUCCESS) {
+    //openResult = MPI_File_open(MPI_COMM_SELF,nomeFileB, MPI_MODE_RDONLY, MPI_INFO_NULL, &fdB);
+    bFile=fopen(nomeFileB,"r");
+    if (bFile == NULL) {
         // Gestisci l'errore e termina il programma
         printf("Errore nell'apertura del file B.\n");
         MPI_Abort(MPI_COMM_WORLD, openResult);
         MPI_Finalize();
         return 1;
     }
-
     cFile=fopen(nomeFileC,"r");
     if (cFile == NULL) {
         // Gestisci l'errore e termina il programma
@@ -140,12 +148,15 @@ int main(int argc, char **argv) {
     }
 
     //leggo l'header dei file e verifico la coerenza delle matrici
-    MPI_File_read(fdA, &MA,1, MPI_INT, MPI_STATUS_IGNORE);
-    MPI_File_read(fdA, &KA, 1, MPI_INT, MPI_STATUS_IGNORE);
+    // MPI_File_read(fdA, &MA,1, MPI_INT, MPI_STATUS_IGNORE);
+    // MPI_File_read(fdA, &KA, 1, MPI_INT, MPI_STATUS_IGNORE);
+    fread(&MA,sizeof(int),1,aFile);
+    fread(&KA,sizeof(int),1,aFile);
 
-    MPI_File_read(fdB, &KB,1, MPI_INT, MPI_STATUS_IGNORE);
-    MPI_File_read(fdB, &NB, 1, MPI_INT, MPI_STATUS_IGNORE);
-  
+    // MPI_File_read(fdB, &KB,1, MPI_INT, MPI_STATUS_IGNORE);
+    // MPI_File_read(fdB, &NB, 1, MPI_INT, MPI_STATUS_IGNORE);
+    fread(&KB,sizeof(int),1,bFile);
+    fread(&NB,sizeof(int),1,bFile);
     // MPI_File_read(fdC, &MC,1, MPI_INT, MPI_STATUS_IGNORE);
     // MPI_File_read(fdC, &NC, 1, MPI_INT, MPI_STATUS_IGNORE);
     fread(&MC,sizeof(int),1,cFile);
@@ -173,23 +184,26 @@ int main(int argc, char **argv) {
     int* localB = (int *) malloc(sizeof(int)*n*K);
     int* localC = (int *) malloc(sizeof(int)*n*m);
     //inizializzo localA
-    MPI_File_seek(fdA,(my_coord[0])*K*sizeof(int),MPI_SEEK_CUR);
+   
+    //MPI_File_seek(fdA,(my_coord[0])*K*sizeof(int),MPI_SEEK_CUR);
     for(int i=0;i<m;i++){ 
         for(int j=0;j<K;j++){
+            fseek(aFile,CONVERTOA(i,j),SEEK_SET);
             int data;
-            MPI_File_read(fdA, &(data),1, MPI_INT, MPI_STATUS_IGNORE);
+            //MPI_File_read(fdA, &(data),1, MPI_INT, MPI_STATUS_IGNORE);
+            fread(&data,sizeof(int),1,aFile);
             localA[K*i+j]=data;
         }
-        MPI_File_seek(fdA,((proc_dims[0]-1)*K)*sizeof(int),MPI_SEEK_CUR);
     }
     //inizializzo localB
-    MPI_File_seek(fdB,my_coord[1]*sizeof(int),MPI_SEEK_CUR); 
+    //MPI_File_seek(fdB,my_coord[1]*sizeof(int),MPI_SEEK_CUR); 
     for(int i=0;i<K;i++){
         for(int j=0;j<n;j++){
+            fseek(aFile,CONVERTOB(i,j),SEEK_SET);
             int data;
-            MPI_File_read(fdB, &(data),1, MPI_INT, MPI_STATUS_IGNORE);
+            fread(&data,sizeof(int),1,bFile);
             localB[K*j+i]=data;
-            MPI_File_seek(fdB,((proc_dims[1]-1))*sizeof(int),MPI_SEEK_CUR);
+            //MPI_File_seek(fdB,((proc_dims[1]-1))*sizeof(int),MPI_SEEK_CUR);
         }
 
     }
