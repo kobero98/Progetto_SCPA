@@ -16,7 +16,7 @@
 
 //va valutato il giusto ordine di operazioni
 //e si possono fare meglio di n^3 operazioni?
-void calcolo_Computazionale(int* localA,int* localB,int* localC,int m,int n,int k){
+void calcolo_Computazionale(float* localA,float* localB,float* localC,int m,int n,int k){
     for(int i=0;i<m;i++){
         for(int j=0;j<n;j++){
             for(int z=0;z<k;z++){
@@ -78,13 +78,12 @@ int main(int argc, char **argv) {
     FILE *cFile;
     FILE *aFile;
     FILE *bFile;
-    //Elaborazione matrice singola elaborazione fatta solo dal processo 0
-    float* C_SingoleCase;
+
     //serve per misurare la correttezza del programma 
     double startSingleExecution;
     double endSingleExecution;
     double startSingleComputation;
-
+    
     MPI_Init(&argc, &argv);
     //verifico che venga passata la cartella dove cercare le matrici
     if(argc != 2){
@@ -98,7 +97,7 @@ int main(int argc, char **argv) {
 
     MPI_Barrier(comm_world_copy);
     start=MPI_Wtime();
-    
+
     //inizializzazione di periods a soli false + inizializzazione di proc_dims a soli 0
     for(i=0; i<DIMS; i++) {
         periods[i] = NO;
@@ -181,18 +180,18 @@ int main(int argc, char **argv) {
     if(my_coord[1]<resto_colonne) n++;
     if(my_coord[0]<resto_righe) m++;
 
-    int* localA = (int *) malloc(sizeof(int)*m*K);
-    int* localB = (int *) malloc(sizeof(int)*n*K);
-    int* localC = (int *) malloc(sizeof(int)*n*m);
+    float* localA = (float *) malloc(sizeof(float)*m*K);
+    float* localB = (float *) malloc(sizeof(float)*n*K);
+    float* localC = (float *) malloc(sizeof(float)*n*m);
     //inizializzo localA
    
     //MPI_File_seek(fdA,(my_coord[0])*K*sizeof(int),MPI_SEEK_CUR);
     for(int i=0;i<m;i++){ 
         for(int j=0;j<K;j++){
             fseek(aFile,CONVERTOA(i,j),SEEK_SET);
-            int data;
+            float data;
             //MPI_File_read(fdA, &(data),1, MPI_INT, MPI_STATUS_IGNORE);
-            fread(&data,sizeof(int),1,aFile);
+            fread(&data,sizeof(float),1,aFile);
             localA[K*i+j]=data;
         }
     }
@@ -201,8 +200,8 @@ int main(int argc, char **argv) {
     for(int i=0;i<K;i++){
         for(int j=0;j<n;j++){
             fseek(bFile,CONVERTOB(i,j),SEEK_SET);
-            int data;
-            fread(&data,sizeof(int),1,bFile);
+            float data;
+            fread(&data,sizeof(float),1,bFile);
             localB[K*j+i]=data;
             //MPI_File_seek(fdB,((proc_dims[1]-1))*sizeof(int),MPI_SEEK_CUR);
         }
@@ -212,8 +211,8 @@ int main(int argc, char **argv) {
     for(i=0;i<m;i++){
         for(j=0;j<n;j++){
             fseek(cFile,CONVERTOC(i,j),SEEK_SET);
-            int data;
-            fread(&data,sizeof(int),1,cFile);
+            float data;
+            fread(&data,sizeof(float),1,cFile);
             localC[i*n+j]=data;
         }
     }
@@ -245,17 +244,18 @@ int main(int argc, char **argv) {
             for(int i=0;i<M;i++){
                 char buffer2[50];
                 for(int j=0;j<N-1;j++){
-                    sprintf(buffer2,"%d,\0",localC[i*N+j]);
-                    MPI_File_write(fdR, &(localC[i*N+j]), 1, MPI_INT, MPI_STATUS_IGNORE);
+                    sprintf(buffer2,"%f,\0",localC[i*N+j]);
+                    MPI_File_write(fdR, &(localC[i*N+j]), 1, MPI_FLOAT, MPI_STATUS_IGNORE);
                     MPI_File_write(fdRShadow, &buffer2,strlen(buffer2), MPI_CHAR, MPI_STATUS_IGNORE);
                 }
-                sprintf(buffer2,"%d\n\0",localC[i*N+N-1]);
-                MPI_File_write(fdR, &(localC[i*N+N-1]), 1, MPI_INT, MPI_STATUS_IGNORE);
+                sprintf(buffer2,"%f\n\0",localC[i*N+N-1]);
+                MPI_File_write(fdR, &(localC[i*N+N-1]), 1, MPI_FLOAT, MPI_STATUS_IGNORE);
                 MPI_File_write(fdRShadow, &buffer2, strlen(buffer2), MPI_CHAR, MPI_STATUS_IGNORE);
             }
 
             MPI_File_close(&fdR);
             MPI_File_close(&fdRShadow);
+            printf("{\"processo\":%d,\"tempo_senza_creazione\":%f,\"tempo_totale\":%f}\n",my_rank,end-startAftearCreate,end-start);
     }else{
         int MR,NR;
         FILE *FileRes;
@@ -265,26 +265,26 @@ int main(int argc, char **argv) {
             fread(&MR,sizeof(int),1,FileRes);
             fread(&NR,sizeof(int),1,FileRes);
             // double maxErr=0.0;
-            int maxErr=0;
+            double maxErr=0.0;
             int countt=0;
             for(int i=0;i<m;i++){
                 for(int j=0;j<n;j++){
                     fseek(FileRes,CONVERTOC(i,j),SEEK_SET);
-                    int data;
-                    fread(&data,sizeof(int),1,FileRes);
+                    float data;
+                    fread(&data,sizeof(float),1,FileRes);
                     if(maxErr<(localC[i*n+j] - data)){
                         maxErr = localC[i*n+j] - data;
                         countt++;
                     }
                 }
             }
-            printf("%d) Max Error=%d Number error=%d\n",my_rank,maxErr,countt);
+            printf("{\"processo\":%d,\"max_Error\":%f,\"number_error\":%d,\"tempo_senza_creazione\":%f,\"tempo_totale\":%f},\n",my_rank,maxErr,countt,end-startAftearCreate,end-start);
         }
     }  
     free(localA);
     free(localB);
     free(localC);
-    printf("%d) tempo senza creazione=%f  tempo Totale=%fs\n",my_rank,end-startAftearCreate,end-start);
+    //printf("%d) tempo senza creazione=%f  tempo Totale=%fs\n",my_rank,end-startAftearCreate,end-start);
     MPI_Finalize();
     return 0;
 }

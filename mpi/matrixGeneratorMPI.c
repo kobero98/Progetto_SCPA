@@ -68,7 +68,7 @@ int main(int argc, char *argv[]) {
         sprintf(filenameShadow,"%s/C.txt\0",argv[2]);
     }
     // Inizializzazione di dati locali con valori casuali
-    srand(seed);  // Inizializza il seed del generatore di numeri casuali basato sul rank
+    srand(seed+rank);  // Inizializza il seed del generatore di numeri casuali basato sul rank
     // Apertura del file per la scrittura
     // Processo 0 scrive le dimensioni della matrice nel file
     MPI_File_open(MPI_COMM_SELF, filename, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &file);
@@ -86,16 +86,16 @@ int main(int argc, char *argv[]) {
             int s;
             char buffer2[20];
             for(int j=0;j<N-1;j++){
-                int s=rand()%100;
+                float s=(rand()%100)/100;
                 //int s=1;
-                sprintf(buffer2,"%d,\0",s);
-                MPI_File_write(file, &s, 1, MPI_INT, MPI_STATUS_IGNORE);
+                sprintf(buffer2,"%f,\0",s);
+                MPI_File_write(file, &s, 1, MPI_FLOAT, MPI_STATUS_IGNORE);
                 MPI_File_write(fileShadow, &buffer2,strlen(buffer2), MPI_CHAR, MPI_STATUS_IGNORE);
             }
-            s=rand()%100;
+            s=(rand()%100)/100;
             //s=1;
-            sprintf(buffer2,"%d\n\0",s);
-            MPI_File_write(file, &s, 1, MPI_INT, MPI_STATUS_IGNORE);
+            sprintf(buffer2,"%f\n\0",s);
+            MPI_File_write(file, &s, 1, MPI_FLOAT, MPI_STATUS_IGNORE);
             MPI_File_write(fileShadow, &buffer2, strlen(buffer2), MPI_CHAR, MPI_STATUS_IGNORE);
         }
         MPI_File_close(&file);
