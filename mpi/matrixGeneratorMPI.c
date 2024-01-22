@@ -87,7 +87,7 @@ int main(int argc, char *argv[]) {
             char buffer2[20];
             for(int j=0;j<N-1;j++){
                 int s=rand()%100;
-                //int s=0;
+                //int s=1;
                 sprintf(buffer2,"%d,\0",s);
                 MPI_File_write(file, &s, 1, MPI_INT, MPI_STATUS_IGNORE);
                 MPI_File_write(fileShadow, &buffer2,strlen(buffer2), MPI_CHAR, MPI_STATUS_IGNORE);

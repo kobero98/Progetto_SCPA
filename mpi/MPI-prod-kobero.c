@@ -10,7 +10,7 @@
 #define DEBUG
 
 #define CONVERTOA(i,j) 2*sizeof(int) + sizeof(int)*i*(proc_dims[0])*N + sizeof(int)*my_coord[0]*N + sizeof(int)*j
-#define CONVERTOB(i,j) 2*sizeof(int) + sizeof(int)*i*(proc_dims[0])*N + sizeof(int)*j*(proc_dims[1])+sizeof(int)*my_coord[1]
+#define CONVERTOB(i,j) 2*sizeof(int) + sizeof(int)*i*N + sizeof(int)*j*(proc_dims[1])+ sizeof(int)*my_coord[1]
 #define CONVERTOC(i,j) 2*sizeof(int) + sizeof(int)*i*(proc_dims[0])*N + sizeof(int)*my_coord[0]*N + sizeof(int)*j*(proc_dims[1])+sizeof(int)*my_coord[1]
 
 
@@ -98,6 +98,7 @@ int main(int argc, char **argv) {
 
     MPI_Barrier(comm_world_copy);
     start=MPI_Wtime();
+    
     //inizializzazione di periods a soli false + inizializzazione di proc_dims a soli 0
     for(i=0; i<DIMS; i++) {
         periods[i] = NO;
@@ -199,7 +200,7 @@ int main(int argc, char **argv) {
     //MPI_File_seek(fdB,my_coord[1]*sizeof(int),MPI_SEEK_CUR); 
     for(int i=0;i<K;i++){
         for(int j=0;j<n;j++){
-            fseek(aFile,CONVERTOB(i,j),SEEK_SET);
+            fseek(bFile,CONVERTOB(i,j),SEEK_SET);
             int data;
             fread(&data,sizeof(int),1,bFile);
             localB[K*j+i]=data;
