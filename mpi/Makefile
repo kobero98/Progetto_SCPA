@@ -1,7 +1,9 @@
-#module load mpi;mpicc MPI-prod-kobero.c -o MPI-prod-kobero;
-#mpicc MPI-prod-fanfa.c -o MPI-prod-fanfa;
-all:
-	bash start.sh
+fanfa:
+	bash start.sh fanfa
+
+kobero:
+	bash start.sh kobero
+
 clean:
-	rm -d -r target;
 	rm -d -r result;
+	rm -d -r target;
