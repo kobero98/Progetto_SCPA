@@ -2,19 +2,22 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include "mpi.h"
 
 #define DIMS 2  //number of dimensions of a matrix
-#define RAND_DIV 1000000000.0   //divisor of rand() when matrixes components are generated
-
 #define NO 0
 #define YES NO+1
-
 #define DEBUG
 
+//the following macros define how each process has to index total matrices
+#define CONVERSION_A(i,j)   (2 + (i*proc_dims[0]+all_cart_coords[my_rank][0])*mb*K + (j*proc_dims[1]+all_cart_coords[my_rank][1])*kb)*sizeof(float)
+#define CONVERSION_B(i)     (2 + (i*proc_dims[1]+all_cart_coords[my_rank][1])*kb*N)*sizeof(float)
+#define CONVERSION_C(i)     (2 + (i*proc_dims[0]+all_cart_coords[my_rank][0])*mb*N)*sizeof(float)
 
 
-//TODO: execution of code by varying num of processes on course server
+
+//TODO: execution of code by varying num of processes on department server
 
 /* function which has the responsibility to allocate the array representing the association rank - mesh coordinates for all the processes */
 int **create_all_cart_coords(int p, MPI_Comm comm_world_copy, MPI_Comm comm_cart) {
@@ -223,6 +226,12 @@ void free_all(int **buffer, int num_entries) {
 int main(int argc, char **argv) {
     /* INFORMATION THAT IS PROVIDED BY THE USER AND PROCESS 0 HAS TO SEND TO OTHER PROCESSES */
     //total dimensions of the matrixes
+    int total_rows_A;
+    int total_cols_A;
+    int total_rows_B;
+    int total_cols_B;
+    int total_rows_C;
+    int total_cols_C;
     int K;  //#rows of matrix B and #columns of matrix A (intially try with 12)
     int N;  //#columns of matrixes B, C (initially try with 8)
     int M;  //#rows of matrixes A, C (initially try with 10)
@@ -275,12 +284,44 @@ int main(int argc, char **argv) {
     //counters
     int num_recv;   //variable counting the number of times process 0 is invoking MPI_Recv() during the final gather operation. It helps preventing deadlocks.
     int max_recv;   //variable indicating the max number of times process 0 has to invoke MPI_Recv() during the final gather operation.
+    //useful to access files at the right offset
+    int block_base_index;
 
     /* LOOP INDEXES */
     int i;
     int j;
     int l;
 
+    /* VARIABLES USEFUL TO MEASURE THE PERFORMANCE */
+    double start;               //instant of starting execution (matrix acquisition)
+    double start_after_create;  //instant of starting computation (C <-- C+A*B)
+    double end;                 //instant of ending execution
+    double total_flops;         //flops related to T = end-start
+    double flops;               //flops related to T = end-start_after_create
+    
+    /* VARIABLES USEFUL TO ACCESS FILES */
+    //filenames
+    char *filename_A;               //for matrix A
+    char *filename_B;               //for matrix B
+    char *filename_C;               //for matrix C (input)
+    char *filename_result;          //for matrix C (output)
+    char *filename_result_shadow;   //for matrix C (human-readable output)
+    //file descriptors
+    FILE *file_A;
+    FILE *file_B;
+    FILE *file_C;
+    FILE *file_result;
+    //MPI file descriptors (for writing in serial execution)
+    MPI_File file_result_MPI;
+    MPI_File file_result_shadow_MPI;
+    //float to be populated from input files
+    float fread_data;
+    //buffers to be copied to human-readable file
+    char matrix_dim_buffer[32];         //buffer hospitating both matrix dimensions
+    char matrix_component_buffer[32];   //buffer hospitating next matrix component to be written with auxiliary characters like ","
+
+    /* VARIABLES USEFUL TO MEASURE PROGRAM CORRECTNESS */
+    float max_err;
 
 
     /* MPI INITIALIZATION */
@@ -289,23 +330,25 @@ int main(int argc, char **argv) {
     MPI_Comm_size(comm_world_copy, &p);
     MPI_Comm_rank(comm_world_copy, &my_rank);
     tag = 0;
-    //plant seed for successive rand() invokations
-    srand(my_rank+1);   //srand(0) == srand(1)
 
 
 
     /* CHECK OF #ARGUMENTS PASSED BY THE USER */
     if(argc < 6) {
         if(my_rank == 0) {
-            printf("Usage: MPI-prod K N M kb mb\n");
+            printf("Usage: mpirun [-n numProc] MPI-prod <FOLDER_NAME>\n");
             fflush(stdout);
         }
-        return 0;
+        MPI_Abort(comm_world_copy, EXIT_FAILURE);
     }
 
 
 
     /* CREATION OF ALL COMMUNICATORS */
+    //get the time
+    MPI_Barrier(comm_world_copy);
+    start = MPI_Wtime();
+
     //initialization of periods with only false + initialization of proc_dims with only 0
     for(i=0; i<DIMS; i++) {
         periods[i] = NO;
@@ -349,27 +392,55 @@ int main(int argc, char **argv) {
 
 
 
-    /* INFORMATION EXCHANGE */
-    //we assume that only process 0 initially knows the values of K, N, M, kb, mb.
-    if(my_rank == 0) {
-        //user input acquisition
-        K = atoi(argv[1]);
-        N = atoi(argv[2]);
-        M = atoi(argv[3]);
-        kb = atoi(argv[4]);
-        mb = atoi(argv[5]);
+    /* PARAMETERS ACQUISITION (LIKE MATRIX DIMENSIONS) */
+    //memory allocation for file names (folder name + 3 characters for input files; folder name + 6 characters for output file)
+    filename_A = (char *)malloc(sizeof(char)*(strlen(argv[1])+3));
+    filename_B = (char *)malloc(sizeof(char)*(strlen(argv[1])+3));
+    filename_C = (char *)malloc(sizeof(char)*(strlen(argv[1])+3));
+    filename_result = (char *)malloc(sizeof(char)*(strlen(argv[1])+6));
+    if(!(filename_A && filename_B && filename_C && filename_result))
+        MPI_Abort(comm_world_copy, EXIT_FAILURE);
+    
+    sprintf(filename_A, "%s/A", argv[1]);
+    sprintf(filename_B, "%s/B", argv[1]);
+    sprintf(filename_C, "%s/C", argv[1]);
+    sprintf(filename_result, "%s/CRes", argv[1]);
+
+    filename_A[strlen(filename_A)] = '\0';
+    filename_B[strlen(filename_B)] = '\0';
+    filename_C[strlen(filename_C)] = '\0';
+    filename_result[strlen(filename_result)] = '\0';
+
+    //open files in order to read num_rows and num_columns values
+    file_A = fopen(filename_A, "r");
+    file_B = fopen(filename_B, "r");
+    file_C = fopen(filename_C, "r");
+    if (!(file_A && file_B && file_C))
+        MPI_Abort(comm_world_copy, EXIT_FAILURE);
+
+    //read file headers (i.e. num_rows and num_columns values)
+    fread(&total_rows_A, sizeof(int), 1, file_A);   //third param indicates the number of integers to be read.
+    fread(&total_cols_A, sizeof(int), 1, file_A);
+
+    fread(&total_rows_B, sizeof(int), 1, file_B);
+    fread(&total_cols_B, sizeof(int), 1, file_B);
+
+    fread(&total_rows_C, sizeof(int), 1, file_C);
+    fread(&total_cols_C, sizeof(int), 1, file_C);
+    
+    //verification of compatibility of matrix dimensions
+    if(total_rows_A!=total_rows_C || total_cols_A!=total_rows_B || total_cols_B!=total_cols_C) {
+        fprintf(stderr, "Matrixes have incopatible dimensions.\n");
+        MPI_Abort(comm_world_copy, EXIT_FAILURE);
     }
-
-    //process 0 sends to all the other processes the acquired information.
-    MPI_Bcast(&K, 1, MPI_INT, 0, comm_world_copy);
-    MPI_Bcast(&N, 1, MPI_INT, 0, comm_world_copy);
-    MPI_Bcast(&M, 1, MPI_INT, 0, comm_world_copy);
-    MPI_Bcast(&kb, 1, MPI_INT, 0, comm_world_copy);
-    MPI_Bcast(&mb, 1, MPI_INT, 0, comm_world_copy);
+    //initialization of K, N, M variables
+    K = total_cols_A;
+    N = total_cols_B;
+    M = total_rows_A;
 
 
 
-    /* DIVISION, ALLOCATION AND INITIALIZATION OF THE MATRIXES */
+    /* DIVISION AND ALLOCATION OF THE MATRIXES */
     //get the number of rows and columns of local_A for the current process
     my_rows_A = get_local_dim_A(M, mb, proc_dims, all_cart_coords, my_rank, 0); //last parameter == 0: we are counting rows number.
     my_cols_A = get_local_dim_A(K, kb, proc_dims, all_cart_coords, my_rank, 1); //last parameter == 1: we are counting columns number.
@@ -400,29 +471,39 @@ int main(int argc, char **argv) {
             MPI_Abort(comm_world_copy, EXIT_FAILURE);
     }
 
-    //local_A has to be initialized by all the processes.
-    for(i=0; i<my_rows_A*my_cols_A; i++) {
-        local_A[i] = rand() / RAND_DIV;
-    }
 
-    //local_B has to be initialized by the processes at first row of the mesh. Its content has to be sent in broadcast on col_comms[i] (foreach i).
-    if(all_cart_coords[my_rank][0] == 0) {  //i.e. if I am a process at first row of the mesh --> i.e. if my_mesh_row == 0
-        for(i=0; i<my_rows_B*my_cols_B; i++) {
-            local_B[i] = rand() / RAND_DIV;
+
+    /* INITIALIZATION OF THE MATRIXES */
+    //local_A initialization; each iteration (with a specific (i,j) couple) involves an entire matrix block.
+    for(i=0; i<ceil(1.0*my_rows_A/mb); i++) {
+        for(j=0; j<ceil(1.0*my_cols_A/kb); j++) {
+
+            block_base_index = CONVERSION_A(i,j);
+            for(l=0; l<get_min(mb, my_rows_A-i*mb); l++) {                              //my_rows_A-i*mb = "row remains"
+                fseek(file_A, block_base_index+l*K*sizeof(float), SEEK_SET);            //SEEK_SET = file indexing starts from initial byte
+                fread(&fread_data, sizeof(float), get_min(kb, my_cols_A-j*kb), file_A); //my_cols_A-j*kb = "col remains"
+                local_A[(i*mb+l)*my_cols_A + j*kb] = fread_data;
+
+            }
         }
-        
-    }
-    for(j=0; j<proc_dims[1]; j++) {
-        if(col_comms[j] != MPI_COMM_NULL)
-            MPI_Bcast(local_B, my_rows_B*my_cols_B, MPI_FLOAT, 0, col_comms[j]);
     }
 
-    //local_C has to be initialized by the processes at first column of the mesh. Its content has NOT to be sent in broadcast on row_comms[i] (foreach i)
+    //local_B initialization; each iteration (with a specific (i,j) couple) involves an entire group of kb rows.
+    for(i=0; i<ceil(1.0*my_rows_B/kb); i++) {
+        fseek(file_B, CONVERSION_B(i), SEEK_SET);
+        fread(&fread_data, sizeof(float), N*get_min(kb, my_rows_B-i*kb), file_B);
+        local_B[i*kb*N] = fread_data;
+    }
+
+    //local_C initialization; each iteration (with a specific (i,j) couple) involves an entire group of mb rows. It has to be done just by by the processes at first column of the mesh
     //because in the end the different outputs of local_C for the different processes have to be summed and intial value of matrix C shall be counted only once.
     if(all_cart_coords[my_rank][1] == 0) {  //i.e. if I am a process at first row of the mesh --> i.e. if my_mesh_col == 0
-        for(i=0; i<my_rows_C*my_cols_C; i++) {
-            local_C[i] = rand() / RAND_DIV;
+        for(i=0; i<ceil(1.0*my_rows_C/mb); i++) {
+            fseek(file_C, CONVERSION_C(i), SEEK_SET);
+            fread(&fread_data, sizeof(float), N*get_min(mb, my_rows_C-i*mb), file_C);
+            local_C[i*mb*N] = fread_data;
         }
+
     } else {
         memset(local_C, 0, my_rows_C*my_cols_C*sizeof(float));
     }
@@ -460,6 +541,11 @@ int main(int argc, char **argv) {
 
 
     /* CALCULATE PARTIAL RESULTS OF C <-- A*B + C */
+    //get the time
+    MPI_Barrier(comm_world_copy);
+    start_after_create = MPI_Wtime();
+
+    //do the computation
     for(i=0; i<my_rows_A; i++) {   //TODO: which loop ordering is the most efficient?
         for(j=0; j<my_cols_B; j++) {
             for(l=0; l<my_cols_A; l++) {
@@ -467,6 +553,12 @@ int main(int argc, char **argv) {
             }
         }
     }
+
+    //get the time and calculate performance (FLOPS = 2*K*N*M/T)
+    MPI_Barrier(comm_world_copy);
+    end = MPI_Wtime();
+    total_flops = 2*K*N*M/(end-start);
+    flops = 2*K*N*M/(end-start_after_create);
 
 
 
@@ -484,47 +576,125 @@ int main(int argc, char **argv) {
     #endif
 
 
-    
-    /* GATHER OF MATRIX C (OUTPUT) */
-    //PHASE 1: processes on the same mesh row have the outputs of matrix C related to the same matrix entries: they simply have to be summed.
-    for(i=0; i<proc_dims[0]; i++) { //loop on all the mesh rows
-        if(all_cart_coords[my_rank][0] == i) {  //condition: belonging to i-th mesh row
-            for(j=1; j<proc_dims[1]; j++) { //loop on all the processes belonging to the same mesh row (except itself)
 
-                if(all_cart_coords[my_rank][1] == j && row_comms[i] != MPI_COMM_NULL) {   //one process at time has to send its output to the row mesh representative.
-                    MPI_Send(local_C, my_rows_C*my_cols_C, MPI_FLOAT, 0, tag, row_comms[i]);
-                }
-                else if(all_cart_coords[my_rank][1] == 0 && row_comms[i] != MPI_COMM_NULL) {
-                    //row mesh representative receives the output and sums it with local_C (iterating on all the processes of mesh row).
-                    MPI_Recv(other_C, my_rows_C*my_cols_C, MPI_FLOAT, j, tag, row_comms[i], &status);
-                    //sum: local_C = local_C + other_C
-                    for(l=0; l<my_rows_C*my_cols_C; l++) {
-                        local_C[l] += other_C[l];
+    /* CASE OF 1 PROCESS: REGISTRATION OF FINAL RESULT ON FILE */
+    if(p==1) {
+        //file_result_shadow is a file used only in serial execution to write the final result also in a second file
+        filename_result_shadow = (char *)malloc((sizeof(char))*strlen(argv[1])+10);
+        sprintf(filename_result_shadow, "%s/CRes.txt", argv[1]);
+        filename_result_shadow[strlen(filename_result_shadow)] = '\0';
+
+        //open both normal output file and human-readable output file
+        MPI_File_open(MPI_COMM_SELF, filename_result, MPI_MODE_CREATE|MPI_MODE_WRONLY, MPI_INFO_NULL, &file_result_MPI);
+        MPI_File_open(MPI_COMM_SELF, filename_result_shadow, MPI_MODE_CREATE|MPI_MODE_WRONLY, MPI_INFO_NULL, &file_result_shadow_MPI);
+
+        //write matrix dimensions on normal output file
+        MPI_File_write(file_result_MPI, &M, 1, MPI_INT, MPI_STATUS_IGNORE);  //third parameters indicates the number of integers to be read.
+        MPI_File_write(file_result_MPI, &N, 1, MPI_INT, MPI_STATUS_IGNORE);
+
+        //write matrix dimensions on human-readable output file
+        sprintf(matrix_dim_buffer, "%d, %d\n", M, N);
+        matrix_dim_buffer[strlen(matrix_dim_buffer)] = '\0';
+        MPI_File_write(file_result_shadow_MPI, &matrix_dim_buffer, strlen(matrix_dim_buffer), MPI_CHAR, MPI_STATUS_IGNORE);
+
+        //write all result matrix components
+        for(i=0; i<M; i++) {    //iterating on C rows
+            for(j=0; j<N; j++) {    //iterationg on C columns
+
+                if(j < N-1) //case in which we have to write value+"," (all the component of C except of the last value of each row)
+                    sprintf(matrix_component_buffer, "%f,", local_C[i*N+j]);
+                else        //case in which we have to write value+"\n" (the last value of each row)
+                    sprintf(matrix_component_buffer, "%f\n", local_C[i*N+j]);
+                matrix_component_buffer[strlen(matrix_component_buffer)] = '\0';
+
+                MPI_File_write(file_result_MPI, &(local_C[i*N+j]), 1, MPI_FLOAT, MPI_STATUS_IGNORE);
+                MPI_File_write(file_result_shadow_MPI, &matrix_component_buffer, strlen(matrix_component_buffer), MPI_CHAR, MPI_STATUS_IGNORE);
+
+            }
+        }
+
+        MPI_File_close(&file_result_MPI);
+        MPI_File_close(&file_result_shadow_MPI);
+
+        printf("\nPROCESS %d:\n", my_rank);
+        printf("TIME WITHOUT MATRIXES CREATION = %f - TOTAL TIME = %f\n", end-start_after_create, end-start);
+        printf("FLOPS WITHOUT MATRIXES CREATION = %f - TOTAL FLOPS = %f\n\n", flops, total_flops);
+        fflush(stdout);
+    }
+
+
+    
+    /* CASE OF MULTIPLE PROCESSES: GATHER OF MATRIX C (OUTPUT) */
+    else {
+        //PHASE 1: processes on the same mesh row have the outputs of matrix C related to the same matrix entries: they simply have to be summed.
+        for(i=0; i<proc_dims[0]; i++) { //loop on all the mesh rows
+            if(all_cart_coords[my_rank][0] == i) {  //condition: belonging to i-th mesh row
+                for(j=1; j<proc_dims[1]; j++) { //loop on all the processes belonging to the same mesh row (except itself)
+
+                    if(all_cart_coords[my_rank][1] == j && row_comms[i] != MPI_COMM_NULL) {   //one process at time has to send its output to the row mesh representative.
+                        MPI_Send(local_C, my_rows_C*my_cols_C, MPI_FLOAT, 0, tag, row_comms[i]);
+                    }
+                    else if(all_cart_coords[my_rank][1] == 0 && row_comms[i] != MPI_COMM_NULL) {
+                        //row mesh representative receives the output and sums it with local_C (iterating on all the processes of mesh row).
+                        MPI_Recv(other_C, my_rows_C*my_cols_C, MPI_FLOAT, j, tag, row_comms[i], &status);
+                        //sum: local_C = local_C + other_C
+                        for(l=0; l<my_rows_C*my_cols_C; l++) {
+                            local_C[l] += other_C[l];
+                        }
                     }
                 }
             }
         }
-    }
 
-    //PHASE 2: processes on different mesh rows have the outputs of matrix C related to different matrix entries: they have to be gathered (again with send & recv).
-    max_recv = ceil(1.0*M/mb);  //max_recv corresponds to the number of strips in which matrix C is divided.
-    num_recv = 0;
-    for(i=0; i<proc_dims[0]; i++) {  //loop on all the processes belonging to the first mesh column (i.e. loop on all the mesh rows)
-        if(all_cart_coords[my_rank][1] == 0) {  //condition: belonging to first mesh column
-            
-            for(j=0; j<ceil(1.0*my_rows_C/mb); j++) {   //loop on all the strips of matrix C belonging to the process on which we are iterating (ceil==roof)
-                if(all_cart_coords[my_rank][0] == i && col_comms[0] != MPI_COMM_NULL) {   //one process at time sends its local_C to process 0 (included process 0 itself).
-                    MPI_Send(&local_C[j*N*mb], N*get_min(mb, my_rows_C-j*mb), MPI_FLOAT, 0, tag, col_comms[0]); //my_rows_C-j*mb = "remains"
-                } 
-                if(all_cart_coords[my_rank][0] == 0 && col_comms[0] != MPI_COMM_NULL) { //process 0 receives local_C from the sender and gathers it into matrix C.
-                    if(num_recv == max_recv)    //if process 0 has received all the matrix C strips, it shall not invoke MPI_Recv() anymore.
-                        break;
-                    MPI_Recv(&C[(j*proc_dims[0]+i)*mb*N], N*get_min(mb, my_rows_C-j*mb), MPI_FLOAT, i, tag, col_comms[0], &status); //my_rows-j*mb = "remains"
-                    //(j*proc_dims[0]+i)*mb*N = initial offset of matrix C from which we have to copy strip j of local copy of C associated to i-th process
-                    num_recv++;
+        //PHASE 2: processes on different mesh rows have the outputs of matrix C related to different matrix entries: they have to be gathered (again with send & recv).
+        max_recv = ceil(1.0*M/mb);  //max_recv corresponds to the number of strips in which matrix C is divided.
+        num_recv = 0;
+        for(i=0; i<proc_dims[0]; i++) {  //loop on all the processes belonging to the first mesh column (i.e. loop on all the mesh rows)
+            if(all_cart_coords[my_rank][1] == 0) {  //condition: belonging to first mesh column
+                
+                for(j=0; j<ceil(1.0*my_rows_C/mb); j++) {   //loop on all the strips of matrix C belonging to the process on which we are iterating (ceil==roof)
+                    if(all_cart_coords[my_rank][0] == i && col_comms[0] != MPI_COMM_NULL) {   //one process at time sends its local_C to process 0 (included process 0 itself).
+                        MPI_Send(&local_C[j*N*mb], N*get_min(mb, my_rows_C-j*mb), MPI_FLOAT, 0, tag, col_comms[0]); //my_rows_C-j*mb = "remains"
+                    } 
+                    if(all_cart_coords[my_rank][0] == 0 && col_comms[0] != MPI_COMM_NULL) { //process 0 receives local_C from the sender and gathers it into matrix C.
+                        if(num_recv == max_recv)    //if process 0 has received all the matrix C strips, it shall not invoke MPI_Recv() anymore.
+                            break;
+                        MPI_Recv(&C[(j*proc_dims[0]+i)*mb*N], N*get_min(mb, my_rows_C-j*mb), MPI_FLOAT, i, tag, col_comms[0], &status); //my_rows_C-j*mb = "remains"
+                        //(j*proc_dims[0]+i)*mb*N = initial offset of matrix C from which we have to copy strip j of local copy of C associated to i-th process
+                        num_recv++;
+                    }
                 }
             }
         }
+
+        //PHASE 3: process with rank 0 accesses output file in order to compare actual result with parallel execution result
+        file_result = fopen(filename_result, "r");
+        if (!file_result)   //case in which file_result does not exist
+            MPI_Abort(comm_world_copy, EXIT_FAILURE);
+
+        //read matrix dimensions
+        fread(&M, sizeof(int), 1, file_result);
+        fread(&N, sizeof(int), 1, file_result);
+
+        //read and compare all the output matrix components
+        max_err = 0.0;
+        for(i=0; i<M; i++) {
+            for(j=0; i<N; j++) {
+
+                fread(&fread_data, sizeof(float), 1, file_result);
+                if(max_err < C[i*N+j]-fread_data)
+                    max_err = C[i*N+j]-fread_data;
+
+            }
+        }
+
+        fclose(file_result);
+
+        printf("\nPROCESS %d:\n", my_rank);
+        printf("MAX ERROR = %f\n", max_err);
+        printf("TIME WITHOUT MATRIXES CREATION = %f - TOTAL TIME = %f\n", end-start_after_create, end-start);
+        printf("FLOPS WITHOUT MATRIXES CREATION = %f - TOTAL FLOPS = %f\n\n", flops, total_flops);
+        fflush(stdout);
     }
 
 
@@ -545,6 +715,10 @@ int main(int argc, char **argv) {
 
 
     /* END OF THE EXECUTION */
+    fclose(file_A);
+    fclose(file_B);
+    fclose(file_C);
+
     free_all(all_cart_coords, p);
     free_all(row_ranks_list, proc_dims[0]);
     free_all(col_ranks_list, proc_dims[1]);
