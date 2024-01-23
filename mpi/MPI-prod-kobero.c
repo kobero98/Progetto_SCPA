@@ -31,6 +31,7 @@ int main(int argc, char **argv) {
     int KA,MA;
     int KB,NB;
     int MC,NC;
+    int MR,NR;
     //informazioni che il processo 0 deve inviare agli altri processi
     int K;  //Numero Colonne A //Numero righe B
     int M;  //Numero Righe di A //Numero righe di C 
@@ -78,7 +79,6 @@ int main(int argc, char **argv) {
     FILE *cFile;
     FILE *aFile;
     FILE *bFile;
-
     //serve per misurare la correttezza del programma 
     double startSingleExecution;
     double endSingleExecution;
@@ -257,14 +257,17 @@ int main(int argc, char **argv) {
             MPI_File_close(&fdRShadow);
             printf("{\"processo\":%d,\"tempo_senza_creazione\":%f,\"tempo_totale\":%f}\n",my_rank,end-startAftearCreate,end-start);
     }else{
-        int MR,NR;
-        FILE *FileRes;
         FileRes=fopen(nomeFileCResult,"r");
         if(FileRes!=NULL){
             //controllo la differenza solo se esiste il file dei risultati 
             fread(&MR,sizeof(int),1,FileRes);
             fread(&NR,sizeof(int),1,FileRes);
-            // double maxErr=0.0;
+            if(MR!= M || NR !=N){
+                fprintf(stderr, "le matrici sono dei risultati sono di dimensioni diverse\n");
+                MPI_Abort(MPI_COMM_WORLD, -1);
+                MPI_Finalize();
+                return 1;
+            }
             double maxErr=0.0;
             int countt=0;
             for(int i=0;i<m;i++){
@@ -279,6 +282,8 @@ int main(int argc, char **argv) {
                 }
             }
             printf("{\"processo\":%d,\"max_Error\":%f,\"number_error\":%d,\"tempo_senza_creazione\":%f,\"tempo_totale\":%f},\n",my_rank,maxErr,countt,end-startAftearCreate,end-start);
+        }else{
+        printf("{\"processo\":%d,\"tempo_senza_creazione\":%f,\"tempo_totale\":%f},\n",my_rank,end-startAftearCreate,end-start);
         }
     }  
     free(localA);
