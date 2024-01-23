@@ -34,7 +34,6 @@ do
     done
 done
 
-echo 
 for K in {5000,8000,10000,11000,12000,15000}
 do
     dir="matrix-seed-$seed-$K"
