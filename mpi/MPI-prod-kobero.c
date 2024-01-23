@@ -16,7 +16,9 @@
 
 //va valutato il giusto ordine di operazioni
 //e si possono fare meglio di n^3 operazioni?
-void calcolo_Computazionale(float* localA,float* localB,float* localC,int m,int n,int k){
+
+//i->j->z
+void calcolo_Computazionale1(float* localA,float* localB,float* localC,int m,int n,int k){
     for(int i=0;i<m;i++){
         for(int j=0;j<n;j++){
             for(int z=0;z<k;z++){
@@ -25,6 +27,57 @@ void calcolo_Computazionale(float* localA,float* localB,float* localC,int m,int 
         }
     }
 }
+//i->z->j
+void calcolo_Computazionale2(float* localA,float* localB,float* localC,int m,int n,int k){
+    for(int i=0;i<m;i++){
+        for(int z=0;z<k;z++){
+            for(int j=0;j<n;j++){
+                localC[i*n+j]+=localA[i*k+z]*localB[j*k+z];
+            }
+        }
+    }
+}
+//j->i->z
+void calcolo_Computazionale3(float* localA,float* localB,float* localC,int m,int n,int k){
+    for(int j=0;j<n;j++){
+        for(int i=0;i<m;i++){
+            for(int z=0;z<k;z++){
+                localC[i*n+j]+=localA[i*k+z]*localB[j*k+z];
+            }
+        }
+    }
+}
+//j->z->i
+void calcolo_Computazionale4(float* localA,float* localB,float* localC,int m,int n,int k){
+    for(int j=0;j<n;j++){
+        for(int z=0;z<k;z++){
+            for(int i=0;i<m;i++){
+                localC[i*n+j]+=localA[i*k+z]*localB[j*k+z];
+            }
+        }
+    }
+}
+//z->i->j
+void calcolo_Computazionale5(float* localA,float* localB,float* localC,int m,int n,int k){
+    for(int z=0;z<k;z++){
+        for(int i=0;i<m;i++){
+            for(int j=0;j<n;j++){
+                localC[i*n+j]+=localA[i*k+z]*localB[j*k+z];
+            }
+        }
+    }
+}
+//z->j->i
+void calcolo_Computazionale6(float* localA,float* localB,float* localC,int m,int n,int k){
+    for(int z=0;z<k;z++){
+        for(int j=0;j<n;j++){
+            for(int i=0;i<m;i++){
+                localC[i*n+j]+=localA[i*k+z]*localB[j*k+z];
+            }
+        }
+    }
+}
+
 int main(int argc, char **argv) {
 
     //servono per verificare il corretto passaggio dei file
@@ -217,14 +270,14 @@ int main(int argc, char **argv) {
         }
     }
     //stampa la matrice c per i vari processi
+
     MPI_Barrier(comm_world_copy);
     startAftearCreate=MPI_Wtime();
-    
-    //Calcolo Cooutazionale
-    calcolo_Computazionale(localA,localB,localC,m,n,K);
-    
+    MPI_Barrier(comm_world_copy);
+    calcolo_Computazionale1(localA,localB,localC,m,n,K); //i->j->z
     MPI_Barrier(comm_world_copy);
     end=MPI_Wtime();
+    
     nomeFileCResult=(char*)malloc(strlen(argv[1])+6);
     sprintf(nomeFileCResult,"%s/CRes\0",argv[1]);
     //calcolo MAX DIFF

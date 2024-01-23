@@ -42,8 +42,10 @@ int main(int argc, char *argv[]) {
         MPI_Abort(comm_world_copy, EXIT_FAILURE);
     }
 
-    MPI_File file;
-    MPI_File fileShadow;
+    //MPI_File file;
+    //MPI_File fileShadow;
+    FILE * file;
+    FILE * fileShadow;
     char *filename=(char*)malloc(sizeof(char)*(strlen(argv[2])+2));
     char *filenameShadow=(char*)malloc(sizeof(char)*(strlen(argv[2])+6));
     if(filename==NULL || filenameShadow==NULL ){
@@ -71,17 +73,25 @@ int main(int argc, char *argv[]) {
     srand(seed+rank);  // Inizializza il seed del generatore di numeri casuali basato sul rank
     // Apertura del file per la scrittura
     // Processo 0 scrive le dimensioni della matrice nel file
-    MPI_File_open(MPI_COMM_SELF, filename, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &file);
-    MPI_File_open(MPI_COMM_SELF, filenameShadow, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &fileShadow);
-
+   
+    //MPI_File_open(MPI_COMM_SELF, filename, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &file);
+    //MPI_File_open(MPI_COMM_SELF, filenameShadow, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &fileShadow);
+    // file=fopen(filename,"w+");
+    // fileShadow=(filenameShadow,"w+");
     if (rank < 3) {
-        MPI_File_open(MPI_COMM_SELF, filename, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &file);
-        MPI_File_open(MPI_COMM_SELF, filenameShadow, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &fileShadow);
-        MPI_File_write(file, &M, 1, MPI_INT, MPI_STATUS_IGNORE);
-        MPI_File_write(file, &N, 1, MPI_INT, MPI_STATUS_IGNORE);
+        // MPI_File_open(MPI_COMM_SELF, filename, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &file);
+        // MPI_File_open(MPI_COMM_SELF, filenameShadow, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &fileShadow);
+        file=fopen(filename,"w+");
+        fileShadow=fopen(filenameShadow,"w+");
+
+        // MPI_File_write(file, &M, 1, MPI_INT, MPI_STATUS_IGNORE);
+        // MPI_File_write(file, &N, 1, MPI_INT, MPI_STATUS_IGNORE);
+        fwrite(&M,1,sizeof(int),file);
+        fwrite(&N,1,sizeof(int),file);
         char buffer[100];
         sprintf(buffer,"%d,%d\n\0",M,N);
-        MPI_File_write(fileShadow, &buffer,strlen(buffer), MPI_CHAR, MPI_STATUS_IGNORE);
+        fwrite(&buffer,strlen(buffer),sizeof(char),fileShadow);
+        //MPI_File_write(fileShadow, &buffer,strlen(buffer), MPI_CHAR, MPI_STATUS_IGNORE);
         for(int i=0;i<M;i++){
             int s;
             char buffer2[20];
@@ -89,17 +99,23 @@ int main(int argc, char *argv[]) {
                 float s=((float) (rand()%100))/100.0;
                 //int s=1;
                 sprintf(buffer2,"%f,\0",s);
-                MPI_File_write(file, &s, 1, MPI_FLOAT, MPI_STATUS_IGNORE);
-                MPI_File_write(fileShadow, &buffer2,strlen(buffer2), MPI_CHAR, MPI_STATUS_IGNORE);
+                //MPI_File_write(file, &s, 1, MPI_FLOAT, MPI_STATUS_IGNORE);
+                fwrite(&s,1,sizeof(float),file);
+                fwrite(&buffer2,strlen(buffer2),sizeof(char),fileShadow);
+                //MPI_File_write(fileShadow, &buffer2,strlen(buffer2), MPI_CHAR, MPI_STATUS_IGNORE);
             }
             s=(rand()%100)/100;
             //s=1;
             sprintf(buffer2,"%f\n\0",s);
-            MPI_File_write(file, &s, 1, MPI_FLOAT, MPI_STATUS_IGNORE);
-            MPI_File_write(fileShadow, &buffer2, strlen(buffer2), MPI_CHAR, MPI_STATUS_IGNORE);
+            fwrite(&s,1,sizeof(float),file);
+            fwrite(&buffer2,strlen(buffer2),sizeof(char),fileShadow);
+            // MPI_File_write(file, &s, 1, MPI_FLOAT, MPI_STATUS_IGNORE);
+            // MPI_File_write(fileShadow, &buffer2, strlen(buffer2), MPI_CHAR, MPI_STATUS_IGNORE);
         }
-        MPI_File_close(&file);
-        MPI_File_close(&fileShadow);
+        //MPI_File_close(&file);
+        //MPI_File_close(&fileShadow);
+        fclose(file);
+        fclose(fileShadow);
     }
     // Chiusura del file
     MPI_Finalize();
