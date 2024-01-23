@@ -26,7 +26,7 @@ int main(int argc, char *argv[]) {
     M=atoi(argv[3]);
     N=atoi(argv[4]);
     K=atoi(argv[5]);
-    if(M == 0 || N==0|| K==0){
+    if(M == 0 || N==0 || K==0){
         printf("malloc per la creazione dei file fallita\n");
         MPI_Abort(comm_world_copy, -1);
         MPI_Finalize();
@@ -86,7 +86,7 @@ int main(int argc, char *argv[]) {
             int s;
             char buffer2[20];
             for(int j=0;j<N-1;j++){
-                float s=(rand()%100)/100;
+                float s=((float) (rand()%100))/100.0;
                 //int s=1;
                 sprintf(buffer2,"%f,\0",s);
                 MPI_File_write(file, &s, 1, MPI_FLOAT, MPI_STATUS_IGNORE);
