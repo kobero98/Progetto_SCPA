@@ -86,7 +86,7 @@ int main(int argc, char **argv) {
     
     MPI_Init(&argc, &argv);
     //verifico che venga passata la cartella dove cercare le matrici
-    if(argc != 2){
+    if(argc < 2){
         printf("%d input non valido \n",my_rank);
         printf("mpirun [-n numProc] eseguibile <cartella>\n");
         MPI_Abort(comm_world_copy, EXIT_FAILURE);

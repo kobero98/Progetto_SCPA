@@ -4,7 +4,7 @@ mkdir result
 
 module load mpi/openmpi-x86_64;
 mpicc MPI-matrix-gen.c -o target/MPI-matrix-gen -O3
-mpicc MPI-prod-$1.c -o target/MPI-prod-$1 -O3
+mpicc MPI-prod-$1.c -o target/MPI-prod-$1 -lm -O3
 cd target
 
 seed=123456789

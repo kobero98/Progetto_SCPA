@@ -8,7 +8,7 @@
 #define DIMS 2  //number of dimensions of a matrix
 #define NO 0
 #define YES NO+1
-#define DEBUG
+//#define DEBUG
 
 //the following macros define how each process has to index total matrices
 #define CONVERSION_A(i,j)   (2 + (i*proc_dims[0]+all_cart_coords[my_rank][0])*mb*K + (j*proc_dims[1]+all_cart_coords[my_rank][1])*kb)*sizeof(float)
@@ -199,9 +199,7 @@ int get_local_dim_A(int matrix_dim, int block_dim, int *proc_dims, int **all_car
 int get_min(int a, int b) {
     if(a > b)
         return b;
-    else
-        return a;
-    
+    return a;
 }
 
 
@@ -286,11 +284,19 @@ int main(int argc, char **argv) {
     int max_recv;   //variable indicating the max number of times process 0 has to invoke MPI_Recv() during the final gather operation.
     //useful to access files at the right offset
     int block_base_index;
+    //output control (for fread)
+    size_t fread_res_1;
+    size_t fread_res_2;
+    size_t fread_res_3;
+    size_t fread_res_4;
+    size_t fread_res_5;
+    size_t fread_res_6;
 
     /* LOOP INDEXES */
     int i;
     int j;
     int l;
+    int t;
 
     /* VARIABLES USEFUL TO MEASURE THE PERFORMANCE */
     double start;               //instant of starting execution (matrix acquisition)
@@ -334,9 +340,9 @@ int main(int argc, char **argv) {
 
 
     /* CHECK OF #ARGUMENTS PASSED BY THE USER */
-    if(argc < 6) {
+    if(argc < 4) {
         if(my_rank == 0) {
-            printf("Usage: mpirun [-n numProc] MPI-prod <FOLDER_NAME>\n");
+            printf("Usage: mpirun [-n numProc] MPI-prod <FOLDER_NAME> kb mb\n");
             fflush(stdout);
         }
         MPI_Abort(comm_world_copy, EXIT_FAILURE);
@@ -392,6 +398,20 @@ int main(int argc, char **argv) {
 
 
 
+    /* INFORMATION EXCHANGE */
+    //we assume that only process 0 initially knows the values of K, N, M, kb, mb.
+    if(my_rank == 0) {
+        //user input acquisition
+        kb = atoi(argv[2]);
+        mb = atoi(argv[3]);
+    }
+
+    //process 0 sends to all the other processes the acquired information.
+    MPI_Bcast(&kb, 1, MPI_INT, 0, comm_world_copy);
+    MPI_Bcast(&mb, 1, MPI_INT, 0, comm_world_copy);
+
+
+
     /* PARAMETERS ACQUISITION (LIKE MATRIX DIMENSIONS) */
     //memory allocation for file names (folder name + 3 characters for input files; folder name + 6 characters for output file)
     filename_A = (char *)malloc(sizeof(char)*(strlen(argv[1])+3));
@@ -419,14 +439,18 @@ int main(int argc, char **argv) {
         MPI_Abort(comm_world_copy, EXIT_FAILURE);
 
     //read file headers (i.e. num_rows and num_columns values)
-    fread(&total_rows_A, sizeof(int), 1, file_A);   //third param indicates the number of integers to be read.
-    fread(&total_cols_A, sizeof(int), 1, file_A);
+    fread_res_1 = fread(&total_rows_A, sizeof(int), 1, file_A);   //third param indicates the number of integers to be read.
+    fread_res_2 = fread(&total_cols_A, sizeof(int), 1, file_A);
 
-    fread(&total_rows_B, sizeof(int), 1, file_B);
-    fread(&total_cols_B, sizeof(int), 1, file_B);
+    fread_res_3 = fread(&total_rows_B, sizeof(int), 1, file_B);
+    fread_res_4 = fread(&total_cols_B, sizeof(int), 1, file_B);
 
-    fread(&total_rows_C, sizeof(int), 1, file_C);
-    fread(&total_cols_C, sizeof(int), 1, file_C);
+    fread_res_5 = fread(&total_rows_C, sizeof(int), 1, file_C);
+    fread_res_6 = fread(&total_cols_C, sizeof(int), 1, file_C);
+
+    //verification of fread outputs
+    if(fread_res_1 == 0 || fread_res_2 == 0 || fread_res_3 == 0 || fread_res_4 == 0 || fread_res_5 == 0 || fread_res_6 == 0)
+        MPI_Abort(comm_world_copy, EXIT_FAILURE);
     
     //verification of compatibility of matrix dimensions
     if(total_rows_A!=total_rows_C || total_cols_A!=total_rows_B || total_cols_B!=total_cols_C) {
@@ -477,13 +501,18 @@ int main(int argc, char **argv) {
     //local_A initialization; each iteration (with a specific (i,j) couple) involves an entire matrix block.
     for(i=0; i<ceil(1.0*my_rows_A/mb); i++) {
         for(j=0; j<ceil(1.0*my_cols_A/kb); j++) {
-
             block_base_index = CONVERSION_A(i,j);
-            for(l=0; l<get_min(mb, my_rows_A-i*mb); l++) {                              //my_rows_A-i*mb = "row remains"
-                fseek(file_A, block_base_index+l*K*sizeof(float), SEEK_SET);            //SEEK_SET = file indexing starts from initial byte
-                fread(&fread_data, sizeof(float), get_min(kb, my_cols_A-j*kb), file_A); //my_cols_A-j*kb = "col remains"
-                local_A[(i*mb+l)*my_cols_A + j*kb] = fread_data;
 
+            for(l=0; l<get_min(mb, my_rows_A-i*mb); l++) {                      //my_rows_A-i*mb = "row remains"
+                fseek(file_A, block_base_index+l*K*sizeof(float), SEEK_SET);    //SEEK_SET = file indexing starts from initial byte
+
+                for(t=0; t<get_min(kb, my_cols_A-j*kb); t++) {                  //my_cols_A-j*kb = "col remains"
+                    fread_res_1 = fread(&fread_data, sizeof(float), 1, file_A);
+                    if(fread_res_1 == 0)
+                        MPI_Abort(comm_world_copy, EXIT_FAILURE);
+                    local_A[(i*mb+l)*my_cols_A + j*kb+t] = fread_data;
+
+                }
             }
         }
     }
@@ -491,8 +520,14 @@ int main(int argc, char **argv) {
     //local_B initialization; each iteration (with a specific (i,j) couple) involves an entire group of kb rows.
     for(i=0; i<ceil(1.0*my_rows_B/kb); i++) {
         fseek(file_B, CONVERSION_B(i), SEEK_SET);
-        fread(&fread_data, sizeof(float), N*get_min(kb, my_rows_B-i*kb), file_B);
-        local_B[i*kb*N] = fread_data;
+
+        for(j=0; j<N*get_min(kb, my_rows_B-i*kb); j++) {
+            fread_res_1 = fread(&fread_data, sizeof(float), 1, file_B);
+            if(fread_res_1 == 0)
+                MPI_Abort(comm_world_copy, EXIT_FAILURE);
+            local_B[i*kb*N+j] = fread_data;
+
+        }
     }
 
     //local_C initialization; each iteration (with a specific (i,j) couple) involves an entire group of mb rows. It has to be done just by by the processes at first column of the mesh
@@ -500,8 +535,14 @@ int main(int argc, char **argv) {
     if(all_cart_coords[my_rank][1] == 0) {  //i.e. if I am a process at first row of the mesh --> i.e. if my_mesh_col == 0
         for(i=0; i<ceil(1.0*my_rows_C/mb); i++) {
             fseek(file_C, CONVERSION_C(i), SEEK_SET);
-            fread(&fread_data, sizeof(float), N*get_min(mb, my_rows_C-i*mb), file_C);
-            local_C[i*mb*N] = fread_data;
+
+            for(j=0; j<N*get_min(mb, my_rows_C-i*mb); j++) {
+                fread_res_1 = fread(&fread_data, sizeof(float), 1, file_C);
+                if(fread_res_1 == 0)
+                    MPI_Abort(comm_world_copy, EXIT_FAILURE);
+                local_C[i*mb*N+j] = fread_data;
+
+            }
         }
 
     } else {
@@ -615,10 +656,8 @@ int main(int argc, char **argv) {
 
         MPI_File_close(&file_result_MPI);
         MPI_File_close(&file_result_shadow_MPI);
-
-        printf("\nPROCESS %d:\n", my_rank);
-        printf("TIME WITHOUT MATRIXES CREATION = %f - TOTAL TIME = %f\n", end-start_after_create, end-start);
-        printf("FLOPS WITHOUT MATRIXES CREATION = %f - TOTAL FLOPS = %f\n\n", flops, total_flops);
+        printf("{\"processo\":%d,\"tempo_senza_creazione\":%f,\"tempo_totale\":%f,\"flop_senza_creazione\":%f,\"flop_totali\":%f},\n",
+            my_rank, end-start_after_create, end-start, flops, total_flops);
         fflush(stdout);
     }
 
@@ -668,33 +707,37 @@ int main(int argc, char **argv) {
         }
 
         //PHASE 3: process with rank 0 accesses output file in order to compare actual result with parallel execution result
-        file_result = fopen(filename_result, "r");
-        if (!file_result)   //case in which file_result does not exist
-            MPI_Abort(comm_world_copy, EXIT_FAILURE);
+        if(my_rank == 0) {
+            file_result = fopen(filename_result, "r");
+            if (!file_result)   //case in which file_result does not exist
+                MPI_Abort(comm_world_copy, EXIT_FAILURE);
 
-        //read matrix dimensions
-        fread(&M, sizeof(int), 1, file_result);
-        fread(&N, sizeof(int), 1, file_result);
+            //read matrix dimensions
+            fread_res_1 = fread(&M, sizeof(int), 1, file_result);
+            fread_res_2 = fread(&N, sizeof(int), 1, file_result);
+            if(fread_res_1 == 0 || fread_res_2 == 0)
+                    MPI_Abort(comm_world_copy, EXIT_FAILURE);
 
-        //read and compare all the output matrix components
-        max_err = 0.0;
-        for(i=0; i<M; i++) {
-            for(j=0; i<N; j++) {
+            //read and compare all the output matrix components
+            max_err = 0.0;
+            for(i=0; i<M; i++) {
+                for(j=0; j<N; j++) {
 
-                fread(&fread_data, sizeof(float), 1, file_result);
-                if(max_err < C[i*N+j]-fread_data)
-                    max_err = C[i*N+j]-fread_data;
+                    fread_res_1 = fread(&fread_data, sizeof(float), 1, file_result);
+                    if(fread_res_1 == 0)
+                        MPI_Abort(comm_world_copy, EXIT_FAILURE);
 
+                    if(max_err < C[i*N+j]-fread_data)
+                        max_err = C[i*N+j]-fread_data;
+
+                }
             }
+
+            fclose(file_result);
+            printf("{\"processo\":%d,\"max_err\":%f,\"tempo_senza_creazione\":%f,\"tempo_totale\":%f,\"flop_senza_creazione\":%f,\"flop_totali\":%f},\n",
+                my_rank, max_err, end-start_after_create, end-start, flops, total_flops);
+            fflush(stdout);
         }
-
-        fclose(file_result);
-
-        printf("\nPROCESS %d:\n", my_rank);
-        printf("MAX ERROR = %f\n", max_err);
-        printf("TIME WITHOUT MATRIXES CREATION = %f - TOTAL TIME = %f\n", end-start_after_create, end-start);
-        printf("FLOPS WITHOUT MATRIXES CREATION = %f - TOTAL FLOPS = %f\n\n", flops, total_flops);
-        fflush(stdout);
     }
 
 
