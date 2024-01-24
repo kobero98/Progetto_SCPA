@@ -2,5 +2,6 @@ all:
 	bash start.sh
 
 clean:
-	rm -d -r result;
+	rm -d -r kobero-result;
+	rm -d -r fanfa-result;
 	rm -d -r target;

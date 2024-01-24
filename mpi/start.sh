@@ -1,6 +1,7 @@
 #! /bin/bash
 mkdir target
-mkdir result
+mkdir kobero-result
+mkdir fanfa-result
 
 module load mpi/openmpi-x86_64;
 mpicc MPI-matrix-gen.c -o target/MPI-matrix-gen -O3
@@ -15,7 +16,7 @@ do
     dir="kobero-squared-$K"
     mkdir $dir
     mpirun -n 3 MPI-matrix-gen $seed $dir $K $K $K
-    if [ $K -le 2000]; then
+    if [ $K -le 2000 ]; then
         mpirun -n 1 MPI-prod-kobero $dir > ../kobero-result/result-$K-1
     fi
     for p in {4,8,12,16,20}
@@ -70,7 +71,7 @@ do
     dir="fanfa-squared-$K"
     mkdir $dir
     mpirun -n 3 MPI-matrix-gen $seed $dir $K $K $K
-    if [ $K -le 2000]; then
+    if [ $K -le 2000 ]; then
        mpirun -n 1 MPI-prod-fanfa $dir 1 1 > ../fanfa-result/result-$K-1-1
     fi
     for kb in {1,2,4,8,16}
