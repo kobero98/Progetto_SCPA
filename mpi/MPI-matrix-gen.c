@@ -44,34 +44,29 @@ int main(int argc, char *argv[]) {
 
     MPI_File file;
     MPI_File fileShadow;
-    char *filename=(char*)malloc(sizeof(char)*(strlen(argv[2])+2));
-    char *filenameShadow=(char*)malloc(sizeof(char)*(strlen(argv[2])+6));
+    char *filename=(char*)malloc(sizeof(char)*(strlen(argv[2])+3));
+    char *filenameShadow=(char*)malloc(sizeof(char)*(strlen(argv[2])+7));
     if(filename==NULL || filenameShadow==NULL ){
         printf("malloc per la creazione dei file fallita\n");
         MPI_Abort(comm_world_copy, -1);
         MPI_Finalize();
         return -1;
     }
+
     // Specifica il nome del file
     if(rank==0){
-        sprintf(filename,"%s/A",argv[2]);
-        sprintf(filenameShadow,"%s/A.txt",argv[2]);
-        filename[strlen(filename)] = '\0';
-        filenameShadow[strlen(filenameShadow)] = '\0';
+        sprintf(filename,"%s/A\0",argv[2]);
+        sprintf(filenameShadow,"%s/A.txt\0",argv[2]);
         N=K;
     }
     if(rank==1){
-        sprintf(filename,"%s/B",argv[2]);
-        sprintf(filenameShadow,"%s/B.txt",argv[2]);
-        filename[strlen(filename)] = '\0';
-        filenameShadow[strlen(filenameShadow)] = '\0';
+        sprintf(filename,"%s/B\0",argv[2]);
+        sprintf(filenameShadow,"%s/B.txt\0",argv[2]);
         M=K;
     }
     if(rank==2){
-        sprintf(filename,"%s/C",argv[2]);
-        sprintf(filenameShadow,"%s/C.txt",argv[2]);
-        filename[strlen(filename)] = '\0';
-        filenameShadow[strlen(filenameShadow)] = '\0';
+        sprintf(filename,"%s/C\0",argv[2]);
+        sprintf(filenameShadow,"%s/C.txt\0",argv[2]);
     }
     // Inizializzazione di dati locali con valori casuali
     srand(seed+rank);  // Inizializza il seed del generatore di numeri casuali basato sul rank
@@ -88,8 +83,7 @@ int main(int argc, char *argv[]) {
         MPI_File_write(file, &N, 1, MPI_INT, MPI_STATUS_IGNORE);
 
         char buffer[100];
-        sprintf(buffer,"%d,%d\n",M,N);
-        buffer[strlen(buffer)] = '\0';
+        sprintf(buffer,"%d,%d\n\0",M,N);
         MPI_File_write(fileShadow, &buffer,strlen(buffer), MPI_CHAR, MPI_STATUS_IGNORE);
 
         for(int i=0;i<M;i++){
@@ -97,15 +91,13 @@ int main(int argc, char *argv[]) {
             char buffer2[20];
             for(int j=0;j<N-1;j++){
                 s=((float) (rand()%100))/100.0;
-                sprintf(buffer2,"%f,",s);
-                buffer2[strlen(buffer2)] = '\0';
+                sprintf(buffer2,"%f,\0",s);
                 MPI_File_write(file, &s, 1, MPI_FLOAT, MPI_STATUS_IGNORE);
                 MPI_File_write(fileShadow, &buffer2,strlen(buffer2), MPI_CHAR, MPI_STATUS_IGNORE);
             }
 
             s=((float) (rand()%100))/100.0;
-            sprintf(buffer2,"%f\n",s);
-            buffer2[strlen(buffer2)] = '\0';
+            sprintf(buffer2,"%f\n\0",s);
             MPI_File_write(file, &s, 1, MPI_FLOAT, MPI_STATUS_IGNORE);
             MPI_File_write(fileShadow, &buffer2, strlen(buffer2), MPI_CHAR, MPI_STATUS_IGNORE);
 
