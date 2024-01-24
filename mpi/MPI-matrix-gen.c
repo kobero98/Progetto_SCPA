@@ -54,6 +54,7 @@ int main(int argc, char *argv[]) {
         MPI_Finalize();
         return -1;
     }
+
     // Specifica il nome del file
     if(rank==0){
         sprintf(filename,"%s/A\0",argv[2]);
@@ -93,19 +94,18 @@ int main(int argc, char *argv[]) {
         fwrite(&buffer,strlen(buffer),sizeof(char),fileShadow);
         //MPI_File_write(fileShadow, &buffer,strlen(buffer), MPI_CHAR, MPI_STATUS_IGNORE);
         for(int i=0;i<M;i++){
-            int s;
+            float s;
             char buffer2[20];
             for(int j=0;j<N-1;j++){
-                float s=((float) (rand()%100))/100.0;
-                //int s=1;
+                s=((float) (rand()%100))/100.0;
                 sprintf(buffer2,"%f,\0",s);
                 //MPI_File_write(file, &s, 1, MPI_FLOAT, MPI_STATUS_IGNORE);
                 fwrite(&s,1,sizeof(float),file);
                 fwrite(&buffer2,strlen(buffer2),sizeof(char),fileShadow);
                 //MPI_File_write(fileShadow, &buffer2,strlen(buffer2), MPI_CHAR, MPI_STATUS_IGNORE);
             }
-            s=(rand()%100)/100;
-            //s=1;
+
+            s=((float) (rand()%100))/100.0;
             sprintf(buffer2,"%f\n\0",s);
             fwrite(&s,1,sizeof(float),file);
             fwrite(&buffer2,strlen(buffer2),sizeof(char),fileShadow);

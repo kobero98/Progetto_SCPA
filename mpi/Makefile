@@ -1,8 +1,5 @@
-fanfa:
-	bash start.sh fanfa
-
-kobero:
-	bash start.sh kobero
+all:
+	bash start.sh
 
 clean:
 	rm -d -r result;
