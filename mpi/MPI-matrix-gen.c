@@ -46,8 +46,8 @@ int main(int argc, char *argv[]) {
     //MPI_File fileShadow;
     FILE * file;
     FILE * fileShadow;
-    char *filename=(char*)malloc(sizeof(char)*(strlen(argv[2])+2));
-    char *filenameShadow=(char*)malloc(sizeof(char)*(strlen(argv[2])+6));
+    char *filename=(char*)malloc(sizeof(char)*(strlen(argv[2])+3));
+    char *filenameShadow=(char*)malloc(sizeof(char)*(strlen(argv[2])+7));
     if(filename==NULL || filenameShadow==NULL ){
         printf("malloc per la creazione dei file fallita\n");
         MPI_Abort(comm_world_copy, -1);

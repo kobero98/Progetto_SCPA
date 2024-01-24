@@ -10,27 +10,28 @@ cd target
 
 seed=123456789
 
-for K in {500,1000,5000,10000,15000}
+for K in {500,750,1000,2000,5000,10000,15000}
 do 
     dir="kobero-squared-$K"
     mkdir $dir
     mpirun -n 3 MPI-matrix-gen $seed $dir $K $K $K
-    mpirun -n 1 MPI-prod-kobero $dir > ../result/result-$K-1
-
-    for p in {2,4,6,8,10,12,14,16,18,20}
+    if [ $K -le 2000]; then
+        mpirun -n 1 MPI-prod-kobero $dir > ../kobero-result/result-$K-1
+    fi
+    for p in {4,8,12,16,20}
     do
-        echo "[" > ../result/result-$K-$p
+        echo "[" > ../kobero-result/result-$K-$p
 
         for n in {1..9}
         do
             echo "dimensione problema: $K numero processi: $p ";
-            echo "{\"iterazione\":$n,\"vettore\":[" >> ../result/result-$K-$p
-            mpirun -n $p MPI-prod-kobero $dir >> ../result/result-$K-$p
-            echo "{}]}," >> ../result/result-$K-$p
+            echo "{\"iterazione\":$n,\"vettore\":[" >> ../kobero-result/result-$K-$p
+            mpirun -n $p MPI-prod-kobero $dir >> ../kobero-result/result-$K-$p
+            echo "{}]}," >> ../kobero-result/result-$K-$p
         done
-        echo "{\"iterazione\":10,\"vettore\":[" >> ../result/result-$K-$p
-        mpirun -n $p MPI-prod-kobero $dir >> ../result/result-$K-$p
-        echo "{}]}]" >> ../result/result-$K-$p
+        echo "{\"iterazione\":10,\"vettore\":[" >> ../kobero-result/result-$K-$p
+        mpirun -n $p MPI-prod-kobero $dir >> ../kobero-result/result-$K-$p
+        echo "{}]}]" >> ../kobero-result/result-$K-$p
 
     done
 done
@@ -42,52 +43,53 @@ do
     dir="kobero-rectangular-$K"
     mkdir $dir
     mpirun -n 3 MPI-matrix-gen $seed $dir 15000 15000 $K
-    mpirun -n 1 MPI-prod-kobero $dir > ../result/result-$K-1
+    mpirun -n 1 MPI-prod-kobero $dir > ../kobero-result/result-$K-1
 
-    for p in {2,4,6,8,10,12,14,16,18,20}
+    for p in {4,8,12,16,20}
     do
-        echo "[" > ../result/result-$K-$p
+        echo "[" > ../kobero-result/result-$K-$p
 
         for n in {1..9}
         do
             echo "dimensione problema: $K numero processi: $p ";
-            echo "{\"iterazione\":$n,\"vettore\":[" >> ../result/result-$K-$p
-            mpirun -n $p MPI-prod-kobero $dir >> ../result/result-$K-$p
-            echo "{}]}," >> ../result/result-$K-$p
+            echo "{\"iterazione\":$n,\"vettore\":[" >> ../kobero-result/result-$K-$p
+            mpirun -n $p MPI-prod-kobero $dir >> ../kobero-result/result-$K-$p
+            echo "{}]}," >> ../kobero-result/result-$K-$p
         done
-        echo "{\"iterazione\":10,\"vettore\":[" >> ../result/result-$K-$p
-        mpirun -n $p MPI-prod-kobero $dir >> ../result/result-$K-$p
-        echo "{}]}]" >> ../result/result-$K-$p
+        echo "{\"iterazione\":10,\"vettore\":[" >> ../kobero-result/result-$K-$p
+        mpirun -n $p MPI-prod-kobero $dir >> ../kobero-result/result-$K-$p
+        echo "{}]}]" >> ../kobero-result/result-$K-$p
 
     done
 done
 
 
 
-for K in {500,1000,5000,10000,15000}
+for K in {500,750,1000,2000,5000,10000,15000}
 do 
     dir="fanfa-squared-$K"
     mkdir $dir
     mpirun -n 3 MPI-matrix-gen $seed $dir $K $K $K
-    mpirun -n 1 MPI-prod-fanfa $dir 1 1 > ../result/result-$K-1-1
-
+    if [ $K -le 2000]; then
+       mpirun -n 1 MPI-prod-fanfa $dir 1 1 > ../fanfa-result/result-$K-1-1
+    fi
     for kb in {1,2,4,8,16}
     do
 
-        for p in {2,4,6,8,10,12,14,16,18,20}
+        for p in {4,8,12,16,20}
         do
-            echo "[" > ../result/result-$K-$kb-$p
+            echo "[" > ../fanfa-result/result-$K-$kb-$p
 
             for n in {1..9}
             do
                 echo "dimensione problema: $K numero processi: $p ";
-                echo "{\"iterazione\":$n,\"vettore\":[" >> ../result/result-$K-$kb-$p
-                mpirun -n $p MPI-prod-fanfa $dir $kb $kb >> ../result/result-$K-$kb-$p
-                echo "{}]}," >> ../result/result-$K-$kb-$p
+                echo "{\"iterazione\":$n,\"vettore\":[" >> ../fanfa-result/result-$K-$kb-$p
+                mpirun -n $p MPI-prod-fanfa $dir $kb $kb >> ../fanfa-result/result-$K-$kb-$p
+                echo "{}]}," >> ../fanfa-result/result-$K-$kb-$p
             done
-            echo "{\"iterazione\":10,\"vettore\":[" >> ../result/result-$K-$kb-$p
-            mpirun -n $p MPI-prod-fanfa $dir $kb $kb >> ../result/result-$K-$kb-$p
-            echo "{}]}]" >> ../result/result-$K-$kb-$p
+            echo "{\"iterazione\":10,\"vettore\":[" >> ../fanfa-result/result-$K-$kb-$p
+            mpirun -n $p MPI-prod-fanfa $dir $kb $kb >> ../fanfa-result/result-$K-$kb-$p
+            echo "{}]}]" >> ../fanfa-result/result-$K-$kb-$p
 
         done
     done
@@ -100,25 +102,25 @@ do
     dir="fanfa-rectangular-$K"
     mkdir $dir
     mpirun -n 3 MPI-matrix-gen $seed $dir 15000 15000 $K
-    mpirun -n 1 MPI-prod-fanfa $dir 1 1 > ../result/result-$K-1-1
+    mpirun -n 1 MPI-prod-fanfa $dir 1 1 > ../fanfa-result/result-$K-1-1
 
     for kb in {1,2,4,8,16}
     do
 
-        for p in {2,4,6,8,10,12,14,16,18,20}
+        for p in {4,8,12,16,20}
         do
-            echo "[" > ../result/result-$K-$kb-$p
+            echo "[" > ../fanfa-result/result-$K-$kb-$p
 
             for n in {1..9}
             do
                 echo "dimensione problema: $K numero processi: $p ";
-                echo "{\"iterazione\":$n,\"vettore\":[" >> ../result/result-$K-$kb-$p
-                mpirun -n $p MPI-prod-fanfa $dir $kb $kb >> ../result/result-$K-$kb-$p
-                echo "{}]}," >> ../result/result-$K-$kb-$p
+                echo "{\"iterazione\":$n,\"vettore\":[" >> ../fanfa-result/result-$K-$kb-$p
+                mpirun -n $p MPI-prod-fanfa $dir $kb $kb >> ../fanfa-result/result-$K-$kb-$p
+                echo "{}]}," >> ..fanfa-result/result-$K-$kb-$p
             done
-            echo "{\"iterazione\":10,\"vettore\":[" >> ../result/result-$K-$kb-$p
-            mpirun -n $p MPI-prod-fanfa $dir $kb $kb >> ../result/result-$K-$kb-$p
-            echo "{}]}]" >> ../result/result-$K-$kb-$p
+            echo "{\"iterazione\":10,\"vettore\":[" >> ../fanfa-result/result-$K-$kb-$p
+            mpirun -n $p MPI-prod-fanfa $dir $kb $kb >> ../fanfa-result/result-$K-$kb-$p
+            echo "{}]}]" >> ../fanfa-result/result-$K-$kb-$p
 
         done
     done

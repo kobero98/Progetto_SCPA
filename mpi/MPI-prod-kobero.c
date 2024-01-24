@@ -336,7 +336,7 @@ int main(int argc, char **argv) {
             }
             printf("{\"processo\":%d,\"max_Error\":%f,\"number_error\":%d,\"tempo_senza_creazione\":%f,\"tempo_totale\":%f},\n",my_rank,maxErr,countt,end-startAftearCreate,end-start);
         }else{
-        printf("{\"processo\":%d,\"tempo_senza_creazione\":%f,\"tempo_totale\":%f},\n",my_rank,end-startAftearCreate,end-start);
+            printf("{\"processo\":%d,\"tempo_senza_creazione\":%f,\"tempo_totale\":%f},\n",my_rank,end-startAftearCreate,end-start);
         }
     }  
     free(localA);
