@@ -632,29 +632,33 @@ int main(int argc, char **argv) {
         //PHASE 2: processes belonging to the first mesh column access output file in order to compare actual result with parallel execution result
         if(all_cart_coords[my_rank][1] == 0) {
             file_result = fopen(filename_result, "r");
-            if (!file_result)   //case in which file_result does not exist
-                MPI_Abort(comm_world_copy, EXIT_FAILURE);
-                
-            //read and compare all the output matrix components
-            max_err = 0.0;
-            for(i=0; i<(1.0*my_rows_C/mb); i++) {
-                fseek(file_result, CONVERSION_C(i), SEEK_SET);
 
-                for(j=0; j<N*get_min(mb, my_rows_C-i*mb); j++) {
-                    fread_res_1 = fread(&fread_data, sizeof(float), 1, file_result);
-                    if(fread_res_1 == 0)
-                        MPI_Abort(comm_world_copy, EXIT_FAILURE);
+            if (file_result != NULL) {  //case in which file_result exists
+                //read and compare all the output matrix components
+                max_err = 0.0;
+                for(i=0; i<(1.0*my_rows_C/mb); i++) {
+                    fseek(file_result, CONVERSION_C(i), SEEK_SET);
 
-                    if(max_err < local_C[i*mb*N+j]-fread_data)
-                        max_err = local_C[i*mb*N+j]-fread_data;
+                    for(j=0; j<N*get_min(mb, my_rows_C-i*mb); j++) {
+                        fread_res_1 = fread(&fread_data, sizeof(float), 1, file_result);
+                        if(fread_res_1 == 0)
+                            MPI_Abort(comm_world_copy, EXIT_FAILURE);
 
+                        if(max_err < local_C[i*mb*N+j]-fread_data)
+                            max_err = local_C[i*mb*N+j]-fread_data;
+
+                    }
                 }
-            }
 
-            fclose(file_result);
-            printf("{\"processo\":%d,\"max_err\":%f,\"tempo_senza_creazione\":%f,\"tempo_totale\":%f,\"flop_senza_creazione\":%f,\"flop_totali\":%f},\n",
-                my_rank, max_err, end-start_after_create, end-start, flops, total_flops);
-            fflush(stdout);
+                fclose(file_result);
+                printf("{\"processo\":%d,\"max_err\":%f,\"tempo_senza_creazione\":%f,\"tempo_totale\":%f,\"flop_senza_creazione\":%f,\"flop_totali\":%f},\n",
+                    my_rank, max_err, end-start_after_create, end-start, flops, total_flops);
+                fflush(stdout);
+
+            } else {    //case in which it is not necessary to compare obtained result with real result
+                printf("{\"processo\":%d,\"tempo_senza_creazione\":%f,\"tempo_totale\":%f,\"flop_senza_creazione\":%f,\"flop_totali\":%f},\n",
+                    my_rank, end-start_after_create, end-start, flops, total_flops);
+            }
         }
     }
 
