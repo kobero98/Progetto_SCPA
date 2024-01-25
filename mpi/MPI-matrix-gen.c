@@ -97,7 +97,7 @@ int main(int argc, char *argv[]) {
             float s;
             char buffer2[20];
             for(int j=0;j<N-1;j++){
-                s=((float) (rand()%100))/100.0;
+                s=((float) (rand()%1000000))/1000000.0;
                 sprintf(buffer2,"%f,\0",s);
                 //MPI_File_write(file, &s, 1, MPI_FLOAT, MPI_STATUS_IGNORE);
                 fwrite(&s,1,sizeof(float),file);
@@ -105,7 +105,7 @@ int main(int argc, char *argv[]) {
                 //MPI_File_write(fileShadow, &buffer2,strlen(buffer2), MPI_CHAR, MPI_STATUS_IGNORE);
             }
 
-            s=((float) (rand()%100))/100.0;
+            s=((float) (rand()%1000000))/1000000.0;
             sprintf(buffer2,"%f\n\0",s);
             fwrite(&s,1,sizeof(float),file);
             fwrite(&buffer2,strlen(buffer2),sizeof(char),fileShadow);

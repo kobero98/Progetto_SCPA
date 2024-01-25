@@ -325,6 +325,7 @@ int main(int argc, char **argv) {
 
     /* VARIABLES USEFUL TO MEASURE PROGRAM CORRECTNESS */
     float max_err;
+    double relative_err;
 
 
     /* MPI INITIALIZATION */
@@ -636,6 +637,7 @@ int main(int argc, char **argv) {
             if (file_result != NULL) {  //case in which file_result exists
                 //read and compare all the output matrix components
                 max_err = 0.0;
+                relative_err = 0.0;
                 for(i=0; i<(1.0*my_rows_C/mb); i++) {
                     fseek(file_result, CONVERSION_C(i), SEEK_SET);
 
@@ -644,15 +646,17 @@ int main(int argc, char **argv) {
                         if(fread_res_1 == 0)
                             MPI_Abort(comm_world_copy, EXIT_FAILURE);
 
-                        if(max_err < local_C[i*mb*N+j]-fread_data)
+                        if(max_err < local_C[i*mb*N+j]-fread_data) {
                             max_err = local_C[i*mb*N+j]-fread_data;
+                            relative_err = max_err/fread_data;
+                        }
 
                     }
                 }
 
                 fclose(file_result);
-                printf("{\"processo\":%d,\"max_err\":%f,\"tempo_senza_creazione\":%f,\"tempo_totale\":%f,\"flop_senza_creazione\":%f,\"flop_totali\":%f},\n",
-                    my_rank, max_err, end-start_after_create, end-start, flops, total_flops);
+                printf("{\"processo\":%d,\"max_err\":%f,\"relative_err\":%lf,\"tempo_senza_creazione\":%f,\"tempo_totale\":%f,\"flop_senza_creazione\":%f,\"flop_totali\":%f},\n",
+                    my_rank, max_err, relative_err, end-start_after_create, end-start, flops, total_flops);
                 fflush(stdout);
 
             } else {    //case in which it is not necessary to compare obtained result with real result
