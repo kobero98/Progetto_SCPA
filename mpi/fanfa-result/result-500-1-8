@@ -1,4 +1,0 @@
-{"processo":0,"max_err":0,"tempo_senza_creazione":0.029125,"tempo_totale":0.089964,"flop_senza_creazione":8583547166.660348,"flop_totali":2778883619.075747},
-{"processo":4,"max_err":0,"tempo_senza_creazione":0.029241,"tempo_totale":0.089963,"flop_senza_creazione":8549647099.636526,"flop_totali":2778926925.815534},
-{"processo":6,"max_err":0,"tempo_senza_creazione":0.039574,"tempo_totale":0.089656,"flop_senza_creazione":6317272157.408835,"flop_totali":2788447742.080095},
-{"processo":2,"max_err":0,"tempo_senza_creazione":0.011539,"tempo_totale":0.089493,"flop_senza_creazione":21665867773.902287,"flop_totali":2793510456.199030},
