@@ -10,9 +10,9 @@
 #define YES NO+1
 
 //the following macros define how each process has to index total matrices
-#define CONVERSION_A(i,j)   (2 + (i*proc_dims[0]+all_cart_coords[my_rank][0])*mb*K + (j*proc_dims[1]+all_cart_coords[my_rank][1])*kb)*sizeof(float)
-#define CONVERSION_B(i)     (2 + (i*proc_dims[1]+all_cart_coords[my_rank][1])*kb*N)*sizeof(float)
-#define CONVERSION_C(i)     (2 + (i*proc_dims[0]+all_cart_coords[my_rank][0])*mb*N)*sizeof(float)
+#define CONVERSION_A(i,j)   (2 + (i*proc_dims[0]+all_cart_coords[my_rank][0])*mb*K + (j*proc_dims[1]+all_cart_coords[my_rank][1])*kb)*sizeof(int)
+#define CONVERSION_B(i)     (2 + (i*proc_dims[1]+all_cart_coords[my_rank][1])*kb*N)*sizeof(int)
+#define CONVERSION_C(i)     (2 + (i*proc_dims[0]+all_cart_coords[my_rank][0])*mb*N)*sizeof(int)
 
 
 
@@ -236,13 +236,13 @@ int main(int argc, char **argv) {
 
     /* VARIABLES WHERE THE MATRIXES ARE DEFINED */
     //total matrix C (it has to be allocated only by process with rank 0)
-    float *C;
+    int *C;
     //local portions of the matrixes
-    float *local_A;
-    float *local_B;
-    float *local_C;
+    int *local_A;
+    int *local_B;
+    int *local_C;
     //auxiliary buffer for matrix C exchange (it has to be allocated only by the processes at column 0 of the mesh)
-    float *other_C;
+    int *other_C;
 
     /* MPI VARIABLES */
     int my_rank;
@@ -317,14 +317,14 @@ int main(int argc, char **argv) {
     //MPI file descriptors (for writing in serial execution)
     MPI_File file_result_MPI;
     MPI_File file_result_shadow_MPI;
-    //float to be populated from input files
-    float fread_data;
+    //int to be populated from input files
+    int fread_data;
     //buffers to be copied to human-readable file
     char matrix_dim_buffer[32];         //buffer hospitating both matrix dimensions
     char matrix_component_buffer[32];   //buffer hospitating next matrix component to be written with auxiliary characters like ","
 
     /* VARIABLES USEFUL TO MEASURE PROGRAM CORRECTNESS */
-    float max_err;
+    int max_err;
 
 
     /* MPI INITIALIZATION */
@@ -467,22 +467,22 @@ int main(int argc, char **argv) {
     my_cols_C = N;
 
     //allocate the local matrices
-    local_A = (float *)malloc(my_rows_A*my_cols_A*sizeof(float));
-    local_B = (float *)malloc(my_rows_B*my_cols_B*sizeof(float));
-    local_C = (float *)malloc(my_rows_C*my_cols_C*sizeof(float));
+    local_A = (int *)malloc(my_rows_A*my_cols_A*sizeof(int));
+    local_B = (int *)malloc(my_rows_B*my_cols_B*sizeof(int));
+    local_C = (int *)malloc(my_rows_C*my_cols_C*sizeof(int));
     if(!(local_A && local_B && local_C))
         MPI_Abort(comm_world_copy, EXIT_FAILURE);
 
     //allocate auxiliary buffer for matrix C exchange; only processes at column 0 of the mesh have to perform this allocation.
     if(all_cart_coords[my_rank][1] == 0) {
-        other_C = (float *)malloc(my_rows_C*my_cols_C*sizeof(float));
+        other_C = (int *)malloc(my_rows_C*my_cols_C*sizeof(int));
         if(!other_C)
             MPI_Abort(comm_world_copy, EXIT_FAILURE);
     }
 
     //allocate total matrix C; only process 0 has to perform this allocation.
     if(my_rank == 0) {
-        C = (float *)malloc(N*M*sizeof(float));
+        C = (int *)malloc(N*M*sizeof(int));
         if(!C)
             MPI_Abort(comm_world_copy, EXIT_FAILURE);
     }
@@ -496,10 +496,10 @@ int main(int argc, char **argv) {
             block_base_index = CONVERSION_A(i,j);
 
             for(l=0; l<get_min(mb, my_rows_A-i*mb); l++) {                      //my_rows_A-i*mb = "row remains"
-                fseek(file_A, block_base_index+l*K*sizeof(float), SEEK_SET);    //SEEK_SET = file indexing starts from initial byte
+                fseek(file_A, block_base_index+l*K*sizeof(int), SEEK_SET);    //SEEK_SET = file indexing starts from initial byte
 
                 for(t=0; t<get_min(kb, my_cols_A-j*kb); t++) {                  //my_cols_A-j*kb = "col remains"
-                    fread_res_1 = fread(&fread_data, sizeof(float), 1, file_A);
+                    fread_res_1 = fread(&fread_data, sizeof(int), 1, file_A);
                     if(fread_res_1 == 0)
                         MPI_Abort(comm_world_copy, EXIT_FAILURE);
                     local_A[(i*mb+l)*my_cols_A + j*kb+t] = fread_data;
@@ -514,7 +514,7 @@ int main(int argc, char **argv) {
         fseek(file_B, CONVERSION_B(i), SEEK_SET);
 
         for(j=0; j<N*get_min(kb, my_rows_B-i*kb); j++) {
-            fread_res_1 = fread(&fread_data, sizeof(float), 1, file_B);
+            fread_res_1 = fread(&fread_data, sizeof(int), 1, file_B);
             if(fread_res_1 == 0)
                 MPI_Abort(comm_world_copy, EXIT_FAILURE);
             local_B[i*kb*N+j] = fread_data;
@@ -529,7 +529,7 @@ int main(int argc, char **argv) {
             fseek(file_C, CONVERSION_C(i), SEEK_SET);
 
             for(j=0; j<N*get_min(mb, my_rows_C-i*mb); j++) {
-                fread_res_1 = fread(&fread_data, sizeof(float), 1, file_C);
+                fread_res_1 = fread(&fread_data, sizeof(int), 1, file_C);
                 if(fread_res_1 == 0)
                     MPI_Abort(comm_world_copy, EXIT_FAILURE);
                 local_C[i*mb*N+j] = fread_data;
@@ -538,7 +538,7 @@ int main(int argc, char **argv) {
         }
 
     } else {
-        memset(local_C, 0, my_rows_C*my_cols_C*sizeof(float));
+        memset(local_C, 0, my_rows_C*my_cols_C*sizeof(int));
     }
 
 
@@ -588,11 +588,11 @@ int main(int argc, char **argv) {
             for(j=0; j<N; j++) {    //iterationg on C columns
 
                 if(j < N-1) //case in which we have to write value+"," (all the component of C except of the last value of each row)
-                    sprintf(matrix_component_buffer, "%f,\0", local_C[i*N+j]);
+                    sprintf(matrix_component_buffer, "%d,\0", local_C[i*N+j]);
                 else        //case in which we have to write value+"\n" (the last value of each row)
-                    sprintf(matrix_component_buffer, "%f\n\0", local_C[i*N+j]);
+                    sprintf(matrix_component_buffer, "%d\n\0", local_C[i*N+j]);
 
-                MPI_File_write(file_result_MPI, &(local_C[i*N+j]), 1, MPI_FLOAT, MPI_STATUS_IGNORE);
+                MPI_File_write(file_result_MPI, &(local_C[i*N+j]), 1, MPI_INT, MPI_STATUS_IGNORE);
                 MPI_File_write(file_result_shadow_MPI, &matrix_component_buffer, strlen(matrix_component_buffer), MPI_CHAR, MPI_STATUS_IGNORE);
 
             }
@@ -615,11 +615,11 @@ int main(int argc, char **argv) {
                 for(j=1; j<proc_dims[1]; j++) { //loop on all the processes belonging to the same mesh row (except itself)
 
                     if(all_cart_coords[my_rank][1] == j && row_comms[i] != MPI_COMM_NULL) {   //one process at time has to send its output to the row mesh representative.
-                        MPI_Send(local_C, my_rows_C*my_cols_C, MPI_FLOAT, 0, tag, row_comms[i]);
+                        MPI_Send(local_C, my_rows_C*my_cols_C, MPI_INT, 0, tag, row_comms[i]);
                     }
                     else if(all_cart_coords[my_rank][1] == 0 && row_comms[i] != MPI_COMM_NULL) {
                         //row mesh representative receives the output and sums it with local_C (iterating on all the processes of mesh row).
-                        MPI_Recv(other_C, my_rows_C*my_cols_C, MPI_FLOAT, j, tag, row_comms[i], &status);
+                        MPI_Recv(other_C, my_rows_C*my_cols_C, MPI_INT, j, tag, row_comms[i], &status);
                         //sum: local_C = local_C + other_C
                         for(l=0; l<my_rows_C*my_cols_C; l++) {
                             local_C[l] += other_C[l];
@@ -640,7 +640,7 @@ int main(int argc, char **argv) {
                     fseek(file_result, CONVERSION_C(i), SEEK_SET);
 
                     for(j=0; j<N*get_min(mb, my_rows_C-i*mb); j++) {
-                        fread_res_1 = fread(&fread_data, sizeof(float), 1, file_result);
+                        fread_res_1 = fread(&fread_data, sizeof(int), 1, file_result);
                         if(fread_res_1 == 0)
                             MPI_Abort(comm_world_copy, EXIT_FAILURE);
 
@@ -651,7 +651,7 @@ int main(int argc, char **argv) {
                 }
 
                 fclose(file_result);
-                printf("{\"processo\":%d,\"max_err\":%f,\"tempo_senza_creazione\":%f,\"tempo_totale\":%f,\"flop_senza_creazione\":%f,\"flop_totali\":%f},\n",
+                printf("{\"processo\":%d,\"max_err\":%d,\"tempo_senza_creazione\":%f,\"tempo_totale\":%f,\"flop_senza_creazione\":%f,\"flop_totali\":%f},\n",
                     my_rank, max_err, end-start_after_create, end-start, flops, total_flops);
                 fflush(stdout);
 
