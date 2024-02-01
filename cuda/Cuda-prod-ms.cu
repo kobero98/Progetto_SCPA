@@ -5,8 +5,7 @@
 #include <helper_cuda.h>    //for checkCudaError macro
 #include <helper_timer.h>   //for CUDA SDK timers
 
-#define XBD 1024  //x-dimension of thread blocks
-#define YBD 1  //y-dimension of thread blocks
+#define BD 32   //x-dimension of thread blocks
 
 
 
@@ -33,32 +32,34 @@ void cpuMatrixProduct(int m, int k, int n, const float *A, const float *B, float
 
 
 //GPU implementation of matrix-matrix product
-//In this version, we use a block of threads for each block of rows of matrix C (and of matrix A) --> all threads work on entire matrix B.
+//In this version, we use a block of threads foreach matrix C component and we divide A-rows and B-columns between multiple threads belonging to the same block.
 __global__ void gpuMatrixProduct(int m, int k, int n, const float *A, const float *B, float *C) {
     //auxiiary variables
-    int index_k;    //index_k is a pure loop index.
-    int tid_x = threadIdx.x;
-    int tid_y = threadIdx.y;
-    int row = tid_y + blockIdx.x * blockDim.y;
-    if(row >= m || tid_x >= n)  return; //case in which thread indexes exceed matrix C dimensions
+    int index_k;    //index_k depends on tid (threadIdx.x); we loop on index_k in order to iterate on a single A-row and on a single B-column.
+    int tid = threadIdx.x;
+    int c_row = blockIdx.y;
+    int c_col = blockIdx.x;
+    if(c_row >= m || c_col >= n)  return; //case in which thread indexes exceed matrix C dimensions
 
     //use of shared memory
-    /*__shared__ float aux[5000];
-    for(int i=tid_x;i<k;i=i+blockDim.x) { 
-        aux[i]= A[i+row*k];
-    }
-    __syncthreads();*/
-
+    extern __shared__ float aux[BD];
     //matrix matrix product
-    for(; tid_x<n; tid_x += blockDim.x) {
-        for(index_k=0; index_k<k; index_k++) {
-            C[tid_x+row*n] += A[index_k+row*k] * B[tid_x+index_k*n];
-            //C[tid_x+row*n] += aux[index_k] * B[tid_x+index_k*n];
-        }
-
+    for(index_k=tid; index_k<k; index_k += blockDim.x) { 
+        aux[tid] += A[index_k+c_row*k] * B[c_col+index_k*n];
     }
+    __syncthreads();
 
-    //reduction + write result to global memory only if we use shared memory
+    //reduction + write result to global memory
+    for(unsigned int s=1; s < blockDim.x; s*=2) {
+    int index = 2*s*tid;
+    if(index < blockDim.x)
+        aux[index] += aux[index+s];
+    __syncthreads();
+
+  }
+
+  //write result to global memory
+  if(tid == 0) C[c_col+c_row*n] += aux[0];
 
 }
 
@@ -144,8 +145,8 @@ int main(int argc, char **argv) {
     std::cout << "CPU time: " << timer->getTime() << " ms.  GFLOPS: " << cpuFlops << std::endl;
 
     //CALCULATIONS ON THE GPU
-    const dim3 BLOCK_DIM(XBD, YBD);
-    const dim3 GRID_DIM((m-1+YBD)/YBD); //this way we have the right number of block rows even if m is not multiple of YBD.
+    const dim3 BLOCK_DIM(BD);
+    const dim3 GRID_DIM(n, m); //this way we have one thread-block foreach matrix C component.
 
     timer->reset();
     timer->start();

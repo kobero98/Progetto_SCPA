@@ -1,5 +1,8 @@
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
-cuda/Cuda-prod
 target/
+
+cuda/Cuda-prod
+cuda/Cuda-prod-ms
+cuda/Query
