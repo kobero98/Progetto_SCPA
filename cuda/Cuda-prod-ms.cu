@@ -1,11 +1,12 @@
+#include <cstdio>
 #include <iostream>
 
 #include <cuda_runtime.h>   //for CUDA runtime API
 #include <helper_cuda.h>    //for checkCudaError macro
 #include <helper_timer.h>   //for CUDA SDK timers
 
-#define XBD 512 //x-dimension of thread blocks
-#define YBD 2   //y-dimension of thread blocks
+#define XBD 1024  //x-dimension of thread blocks
+#define YBD 1  //y-dimension of thread blocks
 
 
 
@@ -41,13 +42,23 @@ __global__ void gpuMatrixProduct(int m, int k, int n, const float *A, const floa
     int row = tid_y + blockIdx.x * blockDim.y;
     if(row >= m || tid_x >= n)  return; //case in which thread indexes exceed matrix C dimensions
 
+    //use of shared memory
+    /*__shared__ float aux[5000];
+    for(int i=tid_x;i<k;i=i+blockDim.x) { 
+        aux[i]= A[i+row*k];
+    }
+    __syncthreads();*/
+
     //matrix matrix product
     for(; tid_x<n; tid_x += blockDim.x) {
         for(index_k=0; index_k<k; index_k++) {
             C[tid_x+row*n] += A[index_k+row*k] * B[tid_x+index_k*n];
+            //C[tid_x+row*n] += aux[index_k] * B[tid_x+index_k*n];
         }
 
     }
+
+    //reduction + write result to global memory only if we use shared memory
 
 }
 
@@ -169,6 +180,21 @@ int main(int argc, char **argv) {
     //relativeDiff should be as close as possible to unit roundoff.
     //float corresponds to IEEE single precision, so unit roundoff is 1.19e-07.
     std::cout << "Max diff = " << diff << ";    Max relative diff = " << relativeDiff << std::endl;
+
+    /*
+    for(idx=0; idx<m*k; idx++) {
+        std::cout << "h_A[" << idx/k << "][" << idx%k << "] = " << h_A[idx] << std::endl;
+    }
+
+    for(idx=0; idx<n*k; idx++) {
+        std::cout << "h_B[" << idx/n << "][" << idx%n << "] = " << h_B[idx] << std::endl;
+    }
+
+    for(idx=0; idx<m*n; idx++) {
+        printf("\nh_C[%d][%d] = %f\n", idx/n, idx%n, h_C[idx]);
+        printf("h_C_d[%d][%d] = %f\n", idx/n, idx%n, h_C_d[idx]);
+    }*/
+    
 
     //CLEANING UP
     delete timer;
