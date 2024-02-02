@@ -5,7 +5,7 @@
 #include <helper_cuda.h>    //for checkCudaError macro
 #include <helper_timer.h>   //for CUDA SDK timers
 
-#define BD 32   //x-dimension of thread blocks
+#define BD 1024   //x-dimension of thread blocks
 
 
 
@@ -39,27 +39,30 @@ __global__ void gpuMatrixProduct(int m, int k, int n, const float *A, const floa
     int tid = threadIdx.x;
     int c_row = blockIdx.y;
     int c_col = blockIdx.x;
+    float t = 0.0;  //partial result of matrix matrix product
     if(c_row >= m || c_col >= n)  return; //case in which thread indexes exceed matrix C dimensions
 
     //use of shared memory
     extern __shared__ float aux[BD];
     //matrix matrix product
     for(index_k=tid; index_k<k; index_k += blockDim.x) { 
-        aux[tid] += A[index_k+c_row*k] * B[c_col+index_k*n];
+        t += A[index_k+c_row*k] * B[c_col+index_k*n];
     }
+    aux[tid] = t;
     __syncthreads();
 
     //reduction + write result to global memory
+    //TODO: SI PUO' VELOCIZZARE
     for(unsigned int s=1; s < blockDim.x; s*=2) {
-    int index = 2*s*tid;
-    if(index < blockDim.x)
-        aux[index] += aux[index+s];
-    __syncthreads();
+        int index = 2*s*tid;
+        if(index < blockDim.x)
+            aux[index] += aux[index+s];
+        __syncthreads();
 
-  }
+    }
 
-  //write result to global memory
-  if(tid == 0) C[c_col+c_row*n] += aux[0];
+    //write result to global memory
+    if(tid == 0) C[c_col+c_row*n] += aux[0];
 
 }
 
@@ -90,7 +93,8 @@ int main(int argc, char **argv) {
     for(row=0; row<m; row++) {  //matrix A initialization
         for(col=0; col<k; col++) {
             idx = row*k + col;
-            h_A[idx] = 100.0f * static_cast<float>(rand()) / RAND_MAX;
+            //h_A[idx] = 100.0f * static_cast<float>(rand()) / RAND_MAX;
+            h_A[idx] = 1.0*(idx%10);
 
         }
 
@@ -98,7 +102,8 @@ int main(int argc, char **argv) {
     for(row=0; row<k; row++) {  //matrix B initialization
         for(col=0; col<n; col++) {
             idx = row*n + col;
-            h_B[idx] = 100.0f * static_cast<float>(rand()) / RAND_MAX;
+            //h_B[idx] = 100.0f * static_cast<float>(rand()) / RAND_MAX;
+            h_B[idx] = 2.0*(idx%10);
 
         }
 
@@ -106,7 +111,8 @@ int main(int argc, char **argv) {
     for(row=0; row<m; row++) {  //matrix C initialization
         for(col=0; col<n; col++) {
             idx = row*n + col;
-            h_C[idx] = 100.0f * static_cast<float>(rand()) / RAND_MAX;
+            //h_C[idx] = 100.0f * static_cast<float>(rand()) / RAND_MAX;
+            h_C[idx] = 1.0;
 
         }
 
@@ -164,6 +170,7 @@ int main(int argc, char **argv) {
     float relativeDiff = 0.0f;
     float diff = 0.0f;
     float maxAbs;
+    int errCount = 0;
 
     for(row=0; row<m; row++) {  //comparison between every single entry of h_C with every single entry of h_C_d.
         for(col=0; col<n; col++) {
@@ -175,25 +182,32 @@ int main(int argc, char **argv) {
             relativeDiff = std::max(relativeDiff, std:: abs(h_C[idx] - h_C_d[idx])/maxAbs);
             diff = std::max(diff, std::abs(h_C[idx] - h_C_d[idx]));
 
+            if(relativeDiff > 0.001)
+                errCount++;
+
         }
 
     }
     //relativeDiff should be as close as possible to unit roundoff.
     //float corresponds to IEEE single precision, so unit roundoff is 1.19e-07.
     std::cout << "Max diff = " << diff << ";    Max relative diff = " << relativeDiff << std::endl;
+    std::cout << "Err count = " << errCount << std::endl;
 
-    /*
+    /*std::cout << "" << std::endl;
     for(idx=0; idx<m*k; idx++) {
         std::cout << "h_A[" << idx/k << "][" << idx%k << "] = " << h_A[idx] << std::endl;
     }
 
+    std::cout << "" << std::endl;
     for(idx=0; idx<n*k; idx++) {
         std::cout << "h_B[" << idx/n << "][" << idx%n << "] = " << h_B[idx] << std::endl;
     }
 
     for(idx=0; idx<m*n; idx++) {
-        printf("\nh_C[%d][%d] = %f\n", idx/n, idx%n, h_C[idx]);
-        printf("h_C_d[%d][%d] = %f\n", idx/n, idx%n, h_C_d[idx]);
+        if(h_C[idx] - h_C_d[idx] > 0.1 || h_C[idx] - h_C_d[idx] < -0.1) {
+            printf("\nh_C[%d][%d] = %f\n", idx/n, idx%n, h_C[idx]);
+            printf("h_C_d[%d][%d] = %f\n", idx/n, idx%n, h_C_d[idx]);
+        }
     }*/
     
 
