@@ -59,14 +59,15 @@ int main(int argc, char **argv) {
     int col;
     int idx;    //matrix index (= row*ncols + col)
 
-    if(argc < 4) {
-        fprintf(stderr, "Usage: %s m k n\n", argv[0]);
+    if(argc < 5) {
+        fprintf(stderr, "Usage: %s m k n exec_on_cpu\n", argv[0]);
         return -1;
     }
 
     int m = atoi(argv[1]);
     int k = atoi(argv[2]);
     int n = atoi(argv[3]);
+    char *exec_cpu = argv[4];
 
     //HOST MEMORY INITIALIZATION
     float *h_A = new float[m*k];    //matrix A
@@ -125,18 +126,20 @@ int main(int argc, char **argv) {
     StopWatchInterface *timer = 0;
     sdkCreateTimer(&timer);
 
-    timer->start();
-    cpuMatrixProduct(m, k, n, h_A, h_B, h_C);
-    timer->stop();
+    if(exec_cpu[0] == 'y') {
+        timer->start();
+        cpuMatrixProduct(m, k, n, h_A, h_B, h_C);
+        timer->stop();
 
-    cpuFlops = flopCnt / timer->getTime();
-    std::cout << "CPU time: " << timer->getTime() << " ms.  GFLOPS: " << cpuFlops << std::endl;
+        cpuFlops = flopCnt / timer->getTime();
+        std::cout << "CPU time: " << timer->getTime() << " ms.  GFLOPS: " << cpuFlops << std::endl;
+        timer->reset();
+    }
 
     //CALCULATIONS ON THE GPU
     const dim3 BLOCK_DIM(XBD, YBD);
     const dim3 GRID_DIM((m-1+YBD)/YBD); //this way we have the right number of block rows even if m is not multiple of YBD.
 
-    timer->reset();
     timer->start();
     gpuMatrixProduct<<<GRID_DIM, BLOCK_DIM>>>(m, k, n, d_A, d_B, d_C);
     checkCudaErrors(cudaDeviceSynchronize());   //GPU kernel calls are asynchronous: cudaDeviceSynchronize() is useful to take the actual execution time on the GPU before timer->stop().
@@ -145,30 +148,32 @@ int main(int argc, char **argv) {
     gpuFlops = flopCnt / timer->getTime();
     std::cout << "GPU time: " << timer->getTime() << " ms.  GFLOPS: " << gpuFlops << std::endl;
 
-    //download the resulting matrix d_C from the device and store it in h_C_d.
-    checkCudaErrors(cudaMemcpy(h_C_d, d_C, m*n*sizeof(float), cudaMemcpyDeviceToHost));
+    if(exec_cpu[0] == 'y') {
+        //download the resulting matrix d_C from the device and store it in h_C_d.
+        checkCudaErrors(cudaMemcpy(h_C_d, d_C, m*n*sizeof(float), cudaMemcpyDeviceToHost));
 
-    //now let's check if the results are the same.
-    float relativeDiff = 0.0f;
-    float diff = 0.0f;
-    float maxAbs;
+        //now let's check if the results are the same.
+        float relativeDiff = 0.0f;
+        float diff = 0.0f;
+        float maxAbs;
 
-    for(row=0; row<m; row++) {  //comparison between every single entry of h_C with every single entry of h_C_d.
-        for(col=0; col<n; col++) {
-            idx = row*n + col;
+        for(row=0; row<m; row++) {  //comparison between every single entry of h_C with every single entry of h_C_d.
+            for(col=0; col<n; col++) {
+                idx = row*n + col;
 
-            maxAbs = std::max(std::abs(h_C[idx]), std::abs(h_C_d[idx]));
-            if(maxAbs == 0.0)
-                maxAbs = 1.0;
-            relativeDiff = std::max(relativeDiff, std:: abs(h_C[idx] - h_C_d[idx])/maxAbs);
-            diff = std::max(diff, std::abs(h_C[idx] - h_C_d[idx]));
+                maxAbs = std::max(std::abs(h_C[idx]), std::abs(h_C_d[idx]));
+                if(maxAbs == 0.0)
+                    maxAbs = 1.0;
+                relativeDiff = std::max(relativeDiff, std:: abs(h_C[idx] - h_C_d[idx])/maxAbs);
+                diff = std::max(diff, std::abs(h_C[idx] - h_C_d[idx]));
+
+            }
 
         }
-
+        //relativeDiff should be as close as possible to unit roundoff.
+        //float corresponds to IEEE single precision, so unit roundoff is 1.19e-07.
+        std::cout << "Max diff = " << diff << ";    Max relative diff = " << relativeDiff << std::endl;
     }
-    //relativeDiff should be as close as possible to unit roundoff.
-    //float corresponds to IEEE single precision, so unit roundoff is 1.19e-07.
-    std::cout << "Max diff = " << diff << ";    Max relative diff = " << relativeDiff << std::endl;
 
     //CLEANING UP
     delete timer;
