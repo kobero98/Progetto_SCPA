@@ -31,12 +31,81 @@ void cpuMatrixProduct(int m, int k, int n, const float *A, const float *B, float
 
 
 
-__device__ void reduce(volatile float *sdata, int tid) {
+__device__ void warpReduce(volatile float *sdata, int tid) {
     sdata[tid] += sdata[tid+16];
     sdata[tid] += sdata[tid+8];
     sdata[tid] += sdata[tid+4];
     sdata[tid] += sdata[tid+2];
     sdata[tid] += sdata[tid+1];
+}
+
+
+
+template <unsigned int THD> __global__ void reduce(int nt, float *g_idata, float *g_odata) {
+    //auxiliary variables
+    unsigned int tid = threadIdx.x;
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int gridSize = blockDim.x * gridDim.x;
+    //unsigned int i = ( blockIdx.x + blockIdx.y * gridDim.x ) * blockDim.x + threadIdx.x;
+    //unsigned int gridSize = blockDim.x * gridDim.x * gridDim.y;
+
+    //other shared memory
+    extern __shared__ float sdata[BD];
+    sdata[tid] = 0.0;
+
+    while(i<nt) {
+        sdata[tid] += g_idata[i];
+        i += gridSize;
+    }
+    __syncthreads();
+
+    //do reduction in shared memory
+    if(THD >= 1024) { if(tid < 512) { sdata[tid] += sdata[tid+512]; } __syncthreads(); }
+    if(THD >= 512) { if(tid < 256) { sdata[tid] += sdata[tid+256]; } __syncthreads(); }
+    if(THD >= 256) { if(tid < 128) { sdata[tid] += sdata[tid+128]; } __syncthreads(); }
+    if(THD >= 128) { if(tid < 64) { sdata[tid] += sdata[tid+64]; } __syncthreads(); }
+    if(THD >= 64) { if(tid < 32) { sdata[tid] += sdata[tid+32]; } __syncthreads(); }
+
+    if(tid<32)
+        warpReduce(sdata, tid);
+
+    //write result for this block to global memory
+    if(tid == 0)
+        g_odata[ blockIdx.x ] += sdata[0];
+
+}
+
+
+
+__device__ void do_gpu_reduce(int nt, float *g_idata, float *g_odata) {
+    //auxiliary variables
+    const int shmem_size = BD*sizeof(float);
+    int nblocks = (nt+BD-1)/BD;
+    //if(nblocks > max_blocks) nblocks = max_blocks;
+
+    switch(BD) {
+        case 1024:
+            reduce<1024><<<nblocks, 1024, shmem_size, 0>>>(nt, g_idata, g_odata);
+            break;
+        case 512:
+            reduce<512><<<nblocks, 512, shmem_size, 0>>>(nt, g_idata, g_odata);
+            break;
+        case 256:
+            reduce<256><<<nblocks, 256, shmem_size, 0>>>(nt, g_idata, g_odata);
+            break;
+        case 128:
+            reduce<128><<<nblocks, 128, shmem_size, 0>>>(nt, g_idata, g_odata);
+            break;
+        case 64:
+            reduce<64><<<nblocks, 64, shmem_size, 0>>>(nt, g_idata, g_odata);
+            break;
+        default:
+            fprintf(stderr, "BD must be a power of 2 between 64 and 1024");
+
+    }
+
+    return;
+
 }
 
 
@@ -61,18 +130,20 @@ __global__ void gpuMatrixProduct(int m, int k, int n, const float *A, const floa
     aux[tid] = t;
     __syncthreads();
 
-    //reduction    
-    for(int s=BD/2; s>=32; s>>=1) {
-        if(tid<s)
-            aux[tid] += aux[tid+s];
-        __syncthreads();
-    }
-    if(tid<16)
-        reduce(aux, tid);
+    //reduction + write result to global memory
+    int nt = blockDim.x * gridDim.x * gridDim.y;   //n = total number of threads
+    do_gpu_reduce(nt, aux, C);
 
+    /*for(unsigned int s=1; s < blockDim.x; s*=2) {
+        int index = 2*s*tid;
+        if(index < blockDim.x)
+            aux[index] += aux[index+s];
+        __syncthreads();
+
+    }
     //write result to global memory
     if(tid == 0)
-        C[c_col+c_row*n] += aux[0];
+        C[c_col+c_row*n] += aux[0];*/
 
 }
 
