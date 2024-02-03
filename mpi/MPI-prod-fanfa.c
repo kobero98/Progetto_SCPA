@@ -218,6 +218,35 @@ void free_all(int **buffer, int num_entries) {
 
 
 
+void matrix_product(int my_rows_A, int my_cols_A, int my_rows_B, int my_cols_B, int my_rows_C, int my_cols_C,
+    const float *local_A, const float *local_B, float *local_C, int *info) {
+
+    //auxiliary variables (indexes loops)
+    int i;
+    int j;
+    int l;
+
+    //check if local matrixes have compatible dimensions
+    if(my_rows_A!=my_rows_C || my_cols_A!=my_rows_B || my_cols_B!=my_cols_C) {
+        info[0] = -1;
+        return;
+    }
+
+    //do the actual computation
+    for(i=0; i<my_rows_A; i++) {   //TODO: which loop ordering is the most efficient?
+        for(j=0; j<my_cols_B; j++) {
+            for(l=0; l<my_cols_A; l++) {
+                local_C[i*my_cols_C+j] += local_A[i*my_cols_A+l]*local_B[l*my_cols_B+j];
+            }
+        }
+    }
+
+    info[0] = 0;
+}
+
+
+
+
 int main(int argc, char **argv) {
     /* INFORMATION THAT IS PROVIDED BY THE USER AND PROCESS 0 HAS TO SEND TO OTHER PROCESSES */
     //total dimensions of the matrixes
@@ -288,6 +317,8 @@ int main(int argc, char **argv) {
     size_t fread_res_4;
     size_t fread_res_5;
     size_t fread_res_6;
+    //param of matrix_product() which indicates if the computation was successful
+    int *info;
 
     /* LOOP INDEXES */
     int i;
@@ -549,13 +580,17 @@ int main(int argc, char **argv) {
     MPI_Barrier(comm_world_copy);
     start_after_create = MPI_Wtime();
 
+    //allocate info parameter for matrix_product() function
+    info = (int *)malloc(sizeof(int));
+    if(!info)
+        MPI_Abort(comm_world_copy, EXIT_FAILURE);
+
     //do the computation
-    for(i=0; i<my_rows_A; i++) {   //TODO: which loop ordering is the most efficient?
-        for(j=0; j<my_cols_B; j++) {
-            for(l=0; l<my_cols_A; l++) {
-                local_C[i*my_cols_C+j] += local_A[i*my_cols_A+l]*local_B[l*my_cols_B+j];
-            }
-        }
+    matrix_product(my_rows_A, my_cols_A, my_rows_B, my_cols_B, my_rows_C, my_cols_C, local_A, local_B, local_C, info);
+    //ensure if computation was successful
+    if(info[0] < 0) {
+        fprintf(stderr, "Local matrixes have incopatible dimensions.\n");
+        MPI_Abort(comm_world_copy, EXIT_FAILURE);
     }
 
     //get the time and calculate performance (FLOPS = 2*K*N*M/T)
@@ -666,17 +701,21 @@ int main(int argc, char **argv) {
         }
     }
 
-
+    
 
     /* END OF THE EXECUTION */
     fclose(file_A);
     fclose(file_B);
     fclose(file_C);
 
+    //TODO: why does it crash?
+    /*
     free_all(all_cart_coords, p);
     free_all(row_ranks_list, proc_dims[0]);
     free_all(col_ranks_list, proc_dims[1]);
+    */
 
+    free(info);
     free(row_groups);
     free(col_groups);
     free(row_comms);
