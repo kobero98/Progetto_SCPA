@@ -16,7 +16,7 @@ void cpuMatrixProduct(int m, int k, int n, const float *A, const float *B, float
     int index_k;
     int index_n;
 
-    for(index_m=0; index_m<m; index_m++) {  //TODO: check which is the best order of the three nested loops.
+    for(index_m=0; index_m<m; index_m++) {
         for(index_k=0; index_k<k; index_k++) {
             for(index_n=0; index_n<n; index_n++) {
                 C[index_m*n + index_n] += A[index_m*k + index_k] * B[index_k*n + index_n];

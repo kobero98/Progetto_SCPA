@@ -233,7 +233,7 @@ void matrix_product(int my_rows_A, int my_cols_A, int my_rows_B, int my_cols_B, 
     }
 
     //do the actual computation
-    for(i=0; i<my_rows_A; i++) {   //TODO: which loop ordering is the most efficient?
+    for(i=0; i<my_rows_A; i++) {
         for(j=0; j<my_cols_B; j++) {
             for(l=0; l<my_cols_A; l++) {
                 local_C[i*my_cols_C+j] += local_A[i*my_cols_A+l]*local_B[l*my_cols_B+j];
