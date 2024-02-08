@@ -5,4 +5,5 @@ target/
 
 cuda/Cuda-prod
 cuda/Cuda-prod-ms
+cuda/Cuda-prod-ms-read
 cuda/Query
