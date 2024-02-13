@@ -174,7 +174,7 @@ int main(int argc, char **argv) {
     timer->stop();
 
     gpuFlops = flopCnt / timer->getTime();
-    std::cout << "GPU time: " << timer->getTime() << " ms.  GFLOPS: " << gpuFlops << std::endl;
+    std::cout << "\"GPU_time\": " << timer->getTime() << ",  \"GFLOPS\":" << gpuFlops <<std::endl;
 
     if(exec_cpu[0] == 'y') {
         //download the resulting matrix d_C from the device and store it in h_C_d.

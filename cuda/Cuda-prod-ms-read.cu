@@ -4,9 +4,8 @@
 #include <helper_cuda.h>    //for checkCudaError macro
 #include <helper_timer.h>   //for CUDA SDK timers
 
-#define XBD 32      //x-dimension of thread blocks
-#define YBD 32      //y-dimension of thread blocks
-#define MAX_K 32
+//#define XBD 512 //x-dimension of thread blocks
+//#define YBD 2   //y-dimension of thread blocks
 
 
 
@@ -40,10 +39,10 @@ __global__ void gpuMatrixProduct(int m, int k, int n, const float *A, const floa
     int tid_x = threadIdx.x;
     int tid_y = threadIdx.y;
     int row = tid_y + blockIdx.x * blockDim.y;
-    if(row >= m || tid_x >= n)  return; //case in which thread indexes exceed matrix C dimensions
+    if(row >= m)  return; //case in which thread indexes exceed matrix C dimensions
 
     //use of shared memory in order to make faster matrix A accesses
-    extern __shared__ float aux[MAX_K*YBD];
+    extern __shared__ float aux[];
     //initialization of shared memory
     for(tid_x = threadIdx.x; tid_x<k; tid_x += blockDim.x) {
         aux[tid_x+tid_y*k] = A[tid_x+row*k];
@@ -68,8 +67,8 @@ int main(int argc, char **argv) {
     int col;
     int idx;    //matrix index (= row*ncols + col)
 
-    if(argc < 5) {
-        fprintf(stderr, "Usage: %s m k n exec_on_cpu\n", argv[0]);
+    if(argc < 7) {
+        fprintf(stderr, "Usage: %s m k n exec_on_cpu XBD YBD\n", argv[0]);
         return -1;
     }
 
@@ -77,6 +76,9 @@ int main(int argc, char **argv) {
     int k = atoi(argv[2]);
     int n = atoi(argv[3]);
     char *exec_cpu = argv[4];
+    
+    int XBD = atoi(argv[5]);
+    int YBD = atoi(argv[6]);
 
     //HOST MEMORY INITIALIZATION
     float *h_A = new float[m*k];    //matrix A
@@ -110,7 +112,7 @@ int main(int argc, char **argv) {
 
     }
 
-    std::cout << "Test case: m=" << m << ", k=" << k << ", n=" << n << std::endl;
+    //std::cout << "Test case: m=" << m << ", k=" << k << ", n=" << n << std::endl;
 
     //DEVICE MEMORY INITIALIZATION
     float *d_A; //matrix A
@@ -141,7 +143,7 @@ int main(int argc, char **argv) {
         timer->stop();
 
         cpuFlops = flopCnt / timer->getTime();
-        std::cout << "CPU time: " << timer->getTime() << " ms.  GFLOPS: " << cpuFlops << std::endl;
+        std::cout << "\"CPU time\": " << timer->getTime() << " ms.  GFLOPS: " << cpuFlops << std::endl;
         timer->reset();
     }
 
@@ -150,12 +152,12 @@ int main(int argc, char **argv) {
     const dim3 GRID_DIM((m-1+YBD)/YBD); //this way we have the right number of block rows even if m is not multiple of YBD.
 
     timer->start();
-    gpuMatrixProduct<<<GRID_DIM, BLOCK_DIM>>>(m, k, n, d_A, d_B, d_C);
+    gpuMatrixProduct<<<GRID_DIM, BLOCK_DIM,k*YBD*sizeof(float)>>>(m, k, n, d_A, d_B, d_C);
     checkCudaErrors(cudaDeviceSynchronize());   //GPU kernel calls are asynchronous: cudaDeviceSynchronize() is useful to take the actual execution time on the GPU before timer->stop().
     timer->stop();
 
     gpuFlops = flopCnt / timer->getTime();
-    std::cout << "GPU time: " << timer->getTime() << " ms.  GFLOPS: " << gpuFlops << std::endl;
+    std::cout << "\"GPU_time\":" << timer->getTime() << ",  \"GFLOPS\":" << gpuFlops <<std::endl;
 
     if(exec_cpu[0] == 'y') {
         //download the resulting matrix d_C from the device and store it in h_C_d.

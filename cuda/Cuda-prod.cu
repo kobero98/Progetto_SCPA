@@ -4,8 +4,8 @@
 #include <helper_cuda.h>    //for checkCudaError macro
 #include <helper_timer.h>   //for CUDA SDK timers
 
-#define XBD 512 //x-dimension of thread blocks
-#define YBD 2   //y-dimension of thread blocks
+//#define XBD 512 //x-dimension of thread blocks
+//#define YBD 2   //y-dimension of thread blocks
 
 
 
@@ -15,18 +15,14 @@ void cpuMatrixProduct(int m, int k, int n, const float *A, const float *B, float
     int index_m;
     int index_k;
     int index_n;
-
     for(index_m=0; index_m<m; index_m++) {
         for(index_k=0; index_k<k; index_k++) {
             for(index_n=0; index_n<n; index_n++) {
                 C[index_m*n + index_n] += A[index_m*k + index_k] * B[index_k*n + index_n];
 
             }
-
         }
-
     }
-
 }
 
 
@@ -43,8 +39,12 @@ __global__ void gpuMatrixProduct(int m, int k, int n, const float *A, const floa
 
     //matrix matrix product
     for(; tid_x<n; tid_x += blockDim.x) {
-        for(index_k=0; index_k<k; index_k++) {
+        for(index_k=0; index_k<k; index_k=index_k+4) {
             C[tid_x+row*n] += A[index_k+row*k] * B[tid_x+index_k*n];
+            C[tid_x+row*n] += A[index_k+1+row*k] * B[tid_x+(index_k+1)*n];
+            C[tid_x+row*n] += A[index_k+2+row*k] * B[tid_x+(index_k+2)*n];
+            C[tid_x+row*n] += A[index_k+3+row*k] * B[tid_x+(index_k+3)*n];
+
         }
 
     }
@@ -59,8 +59,8 @@ int main(int argc, char **argv) {
     int col;
     int idx;    //matrix index (= row*ncols + col)
 
-    if(argc < 5) {
-        fprintf(stderr, "Usage: %s m k n exec_on_cpu\n", argv[0]);
+    if(argc < 7) {
+        fprintf(stderr, "Usage: %s m k n exec_on_cpu XBD YBD\n", argv[0]);
         return -1;
     }
 
@@ -68,6 +68,9 @@ int main(int argc, char **argv) {
     int k = atoi(argv[2]);
     int n = atoi(argv[3]);
     char *exec_cpu = argv[4];
+
+    int XBD = atoi(argv[5]);
+    int YBD = atoi(argv[6]);
 
     //HOST MEMORY INITIALIZATION
     float *h_A = new float[m*k];    //matrix A
@@ -101,7 +104,7 @@ int main(int argc, char **argv) {
 
     }
 
-    std::cout << "Test case: m=" << m << ", k=" << k << ", n=" << n << std::endl;
+    //std::cout << "Test case: m=" << m << ", k=" << k << ", n=" << n << std::endl;
 
     //DEVICE MEMORY INITIALIZATION
     float *d_A; //matrix A
@@ -146,7 +149,7 @@ int main(int argc, char **argv) {
     timer->stop();
 
     gpuFlops = flopCnt / timer->getTime();
-    std::cout << "GPU time: " << timer->getTime() << " ms.  GFLOPS: " << gpuFlops << std::endl;
+    std::cout << "\"GPU_time\": " << timer->getTime() << ",  \"GFLOPS\":" << gpuFlops <<std::endl;
 
     if(exec_cpu[0] == 'y') {
         //download the resulting matrix d_C from the device and store it in h_C_d.
