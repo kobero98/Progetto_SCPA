@@ -1,32 +1,6 @@
 import json
 import matplotlib.pyplot as plt
 
-# f=open("result/result-10-10")
-# j=json.load(f)
-# print(j)
-dictResultTime={}
-for dim in [500,750,1000,2000,5000,10000]:
-    f=open("result/result-"+str(dim)+"-1")
-    js=json.load(f)
-    dictResultTime[dim]=js["tempo_senza_creazione"]
-    print(js)
-#per ogni iterazione prendo il tempo massimo di esecuzione e inseguito faccio una media per le 20 iterazioni questo lo faccio per ogni matrice e per ogni numero di processi eseguiti
-dictionaryMediaValore={}
-for p in [4,8,12,16,20]:
-    for dim in [500,750,1000,2000,5000,10000]:
-        f=open("result/result-"+str(dim)+"-"+str(p))
-        js=json.load(f)
-        somma=0
-        for k in range(1,20):
-            max= 0.0
-            for v in js[k]["vettore"]:
-                    if "tempo_senza_creazione" in v and max<v["tempo_senza_creazione"]:
-                        max=v["tempo_senza_creazione"]
-            somma=somma+max
-        dictionaryMediaValore[(p,dim)]=somma/20
-print(dictionaryMediaValore)
-
-
 def genera_dati_grafico(dizionario):
     numeri_processi = []
     dimensioni_matrice = []
@@ -39,6 +13,8 @@ def genera_dati_grafico(dizionario):
         tempi_esecuzione.append(tempo)
 
     return numeri_processi, dimensioni_matrice, tempi_esecuzione
+
+
 
 def disegna_grafici(dizionario):
     numeri_processi, dimensioni_matrice, tempi_esecuzione = genera_dati_grafico(dizionario)
@@ -69,5 +45,39 @@ def disegna_grafici(dizionario):
     plt.legend()
     plt.show()
 
-print(dictionaryMediaValore)
-disegna_grafici(dictionaryMediaValore)
+
+
+def main():
+    # f=open("result/result-10-10")
+    # j=json.load(f)
+    # print(j)
+    dictResultTime={}
+    for dim in [500,750,1000,2000,5000,10000]:
+        f=open("result/result-"+str(dim)+"-1")
+        js=json.load(f)
+        dictResultTime[dim]=js["tempo_senza_creazione"]
+        print(js)
+
+    #per ogni iterazione prendo il tempo massimo di esecuzione e inseguito faccio una media per le 20 iterazioni
+    #questo lo faccio per ogni matrice e per ogni numero di processi eseguiti
+    dictionaryMediaValore={}
+    for p in [4,8,12,16,20]:
+        for dim in [500,750,1000,2000,5000,10000]:
+            f=open("result/result-"+str(dim)+"-"+str(p))
+            js=json.load(f)
+            somma=0
+            for k in range(1,20):
+                max= 0.0
+                for v in js[k]["vettore"]:
+                        if "tempo_senza_creazione" in v and max<v["tempo_senza_creazione"]:
+                            max=v["tempo_senza_creazione"]
+                somma=somma+max
+            dictionaryMediaValore[(p,dim)]=somma/20
+    print(dictionaryMediaValore)
+
+    disegna_grafici(dictionaryMediaValore)
+
+
+
+if __name__ == "__main__":
+    main()
