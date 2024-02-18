@@ -1,12 +1,16 @@
+#include <cstdio>
 #include <iostream>
 
 #include <cuda_runtime.h>   //for CUDA runtime API
 #include <helper_cuda.h>    //for checkCudaError macro
 #include <helper_timer.h>   //for CUDA SDK timers
+#include <mma.h>
 
-//#define XBD 512 //x-dimension of thread blocks
-//#define YBD 2   //y-dimension of thread blocks
+using namespace nvcuda;
 
+#define BD 1024   //x-dimension of thread blocks
+
+const int TILE_WIDTH = 32;
 
 
 //simple CPU implementation of matrix-matrix product
@@ -15,38 +19,44 @@ void cpuMatrixProduct(int m, int k, int n, const float *A, const float *B, float
     int index_m;
     int index_k;
     int index_n;
+
     for(index_m=0; index_m<m; index_m++) {
         for(index_k=0; index_k<k; index_k++) {
             for(index_n=0; index_n<n; index_n++) {
                 C[index_m*n + index_n] += A[index_m*k + index_k] * B[index_k*n + index_n];
-
             }
         }
     }
 }
+__global__ void matrixMulti(float* A_d, float* B_d, float* C_d, int m, int k, int n)
+{
+    __shared__ float ds_A[TILE_WIDTH][TILE_WIDTH];
+    __shared__ float ds_B[TILE_WIDTH][TILE_WIDTH];
 
+    int col = blockIdx.x*blockDim.x + threadIdx.x; //la colonna di mio interesse
+    int row = blockIdx.y*blockDim.y + threadIdx.y; //la riga di mio interesse
 
+    int tx = threadIdx.x; //dove devo lavorare io sulla matrice ausiliaria aka i
+    int ty = threadIdx.y; //dove devo lavorare io sulla matrice ausiliaria aka j
+    float sum = 0.0;
 
-//GPU implementation of matrix-matrix product
-//In this version, we use a block of threads for each block of rows of matrix C (and of matrix A) --> all threads work on entire matrix B.
-__global__ void gpuMatrixProduct(int m, int k, int n, const float *A, const float *B, float *C) {
-    //auxiiary variables
-    int index_k;    //index_k is a pure loop index.
-    int tid_x = threadIdx.x;
-    int tid_y = threadIdx.y;
-    int row = tid_y + blockIdx.x * blockDim.y;
-    if(row >= m || tid_x >= n)  return; //case in which thread indexes exceed matrix C dimensions
-
-    //matrix matrix product
-    for(; tid_x<n; tid_x += blockDim.x) {
-        for(index_k=0; index_k<k; index_k=index_k+4) {
-            C[tid_x+row*n] += A[index_k+row*k] * B[tid_x+index_k*n];
-            C[tid_x+row*n] += A[index_k+1+row*k] * B[tid_x+(index_k+1)*n];
-            C[tid_x+row*n] += A[index_k+2+row*k] * B[tid_x+(index_k+2)*n];
-            C[tid_x+row*n] += A[index_k+3+row*k] * B[tid_x+(index_k+3)*n];
-        }
+    for(int t=0; t<(k-1)/TILE_WIDTH+1; t++)
+    {
+        if(row<m && t*TILE_WIDTH+tx<k)
+            ds_A[ty][tx] = A_d[row*k + t*TILE_WIDTH+tx];
+        else
+            ds_A[ty][tx] = 0.0;
+        if(t*TILE_WIDTH+ty<k && col<n)
+            ds_B[ty][tx] = B_d[(t*TILE_WIDTH+ty)*n + col];
+        else
+            ds_B[ty][tx] = 0.0;
+        __syncthreads();
+        for(int i=0; i<TILE_WIDTH; i++)
+            sum += ds_A[ty][i] * ds_B[i][tx];
+        __syncthreads();
     }
-
+    if(row<m && col<n)
+        C_d[col+row*n] += sum;
 }
 
 
@@ -57,19 +67,15 @@ int main(int argc, char **argv) {
     int col;
     int idx;    //matrix index (= row*ncols + col)
 
-    if(argc < 7) {
-        fprintf(stderr, "Usage: %s m k n exec_on_cpu XBD YBD\n", argv[0]);
+    if(argc < 5) {
+        fprintf(stderr, "Usage: %s m k n exec_on_cpu\n", argv[0]);
         return -1;
     }
-
     int m = atoi(argv[1]);
     int k = atoi(argv[2]);
     int n = atoi(argv[3]);
     char *exec_cpu = argv[4];
-
-    int XBD = atoi(argv[5]);
-    int YBD = atoi(argv[6]);
-
+    
     //HOST MEMORY INITIALIZATION
     float *h_A = new float[m*k];    //matrix A
     float *h_B = new float[k*n];    //matrix B
@@ -81,7 +87,6 @@ int main(int argc, char **argv) {
         for(col=0; col<k; col++) {
             idx = row*k + col;
             h_A[idx] = 100.0f * static_cast<float>(rand()) / RAND_MAX;
-
         }
 
     }
@@ -89,7 +94,6 @@ int main(int argc, char **argv) {
         for(col=0; col<n; col++) {
             idx = row*n + col;
             h_B[idx] = 100.0f * static_cast<float>(rand()) / RAND_MAX;
-
         }
 
     }
@@ -97,12 +101,11 @@ int main(int argc, char **argv) {
         for(col=0; col<n; col++) {
             idx = row*n + col;
             h_C[idx] = 100.0f * static_cast<float>(rand()) / RAND_MAX;
-
         }
 
     }
 
-    //std::cout << "Test case: m=" << m << ", k=" << k << ", n=" << n << std::endl;
+    std::cout << "Test case: m=" << m << ", k=" << k << ", n=" << n << std::endl;
 
     //DEVICE MEMORY INITIALIZATION
     float *d_A; //matrix A
@@ -138,16 +141,17 @@ int main(int argc, char **argv) {
     }
 
     //CALCULATIONS ON THE GPU
-    const dim3 BLOCK_DIM(XBD, YBD);
-    const dim3 GRID_DIM((m-1+YBD)/YBD); //this way we have the right number of block rows even if m is not multiple of YBD.
+    dim3 dimGrid((m-1)/TILE_WIDTH+1, (n-1)/TILE_WIDTH+1, 1);
+    dim3 dimBlock(TILE_WIDTH, TILE_WIDTH, 1);
 
     timer->start();
-    gpuMatrixProduct<<<GRID_DIM, BLOCK_DIM>>>(m, k, n, d_A, d_B, d_C);
+    // gpuMatrixProduct<<<GRID_DIM, BLOCK_DIM>>>(m, k, n, d_A, d_B, d_C);
+    matrixMulti<<<dimGrid,dimBlock>>>(d_A, d_B, d_C, m, k, n);
     checkCudaErrors(cudaDeviceSynchronize());   //GPU kernel calls are asynchronous: cudaDeviceSynchronize() is useful to take the actual execution time on the GPU before timer->stop().
     timer->stop();
 
     gpuFlops = flopCnt / timer->getTime();
-    std::cout << "\"GPU_time\": " << timer->getTime() << ",  \"GFLOPS\":" << gpuFlops <<std::endl;
+    std::cout << "GPU time: " << timer->getTime() << " ms.  GFLOPS: " << gpuFlops << std::endl;
 
     if(exec_cpu[0] == 'y') {
         //download the resulting matrix d_C from the device and store it in h_C_d.
@@ -157,6 +161,7 @@ int main(int argc, char **argv) {
         float relativeDiff = 0.0f;
         float diff = 0.0f;
         float maxAbs;
+        int errCount = 0;
 
         for(row=0; row<m; row++) {  //comparison between every single entry of h_C with every single entry of h_C_d.
             for(col=0; col<n; col++) {
@@ -168,13 +173,18 @@ int main(int argc, char **argv) {
                 relativeDiff = std::max(relativeDiff, std:: abs(h_C[idx] - h_C_d[idx])/maxAbs);
                 diff = std::max(diff, std::abs(h_C[idx] - h_C_d[idx]));
 
+                if(relativeDiff > 0.001)
+                    errCount++;
+
             }
 
         }
         //relativeDiff should be as close as possible to unit roundoff.
         //float corresponds to IEEE single precision, so unit roundoff is 1.19e-07.
         std::cout << "Max diff = " << diff << ";    Max relative diff = " << relativeDiff << std::endl;
+        std::cout << "Err count = " << errCount << std::endl;
     }
+    
 
     //CLEANING UP
     delete timer;

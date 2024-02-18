@@ -52,9 +52,9 @@ def main():
     for (xdb, ydb), group in df_cuda_prod.groupby(['XDB', 'YDB']):
         ax=int((xdb/512)-1)
         group.plot(x='AsseX', y='GFLOPS',kind="bar", ax=axes[ax], label=f'df_cuda_prod',width=0.3, position=1)
-    # for (xdb, ydb), group in df_cuda_prod_ms.groupby(['XDB', 'YDB']):
-    #     ax=int((xdb/512)-1)
-    #     group.plot(x='AsseX', y='GFLOPS',kind="bar", ax=axes[ax], label=f'df_cuda_prod_ms',width=0.3,position=2,color="g")
+    for (xdb, ydb), group in df_cuda_prod_ms.groupby(['XDB', 'YDB']):
+        ax=int((xdb/512)-1)
+        group.plot(x='AsseX', y='GFLOPS',kind="bar", ax=axes[ax], label=f'df_cuda_prod_ms',width=0.3,position=2,color="g")
     for (xdb, ydb), group in df_cuda_prod_v2.groupby(['XDB', 'YDB']):
         ax=int((xdb/512)-1)
         group.plot(x='AsseX', y='GFLOPS',kind="bar" , ax=axes[ax], label=f'df_cuda_prod_v2',width=0.3,color="r",position=0)
