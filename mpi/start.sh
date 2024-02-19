@@ -4,9 +4,9 @@ mkdir kobero-result
 mkdir fanfa-result
 
 module load gnu mpich cuda;
-mpicc MPI-matrix-gen.c -o target/MPI-matrix-gen -O3
-mpicc MPI-prod-kobero.c -o target/MPI-prod-kobero -O3
-mpicc MPI-prod-fanfa.c -o target/MPI-prod-fanfa -lm -O3
+mpicc MPI-matrix-gen.c -o target/MPI-matrix-gen -O3 -march=native
+mpicc MPI-prod-kobero.c -o target/MPI-prod-kobero -O3 -march=native
+mpicc MPI-prod-fanfa.c -o target/MPI-prod-fanfa -lm -O3 -march=native
 cd target
 
 seed=123456789
