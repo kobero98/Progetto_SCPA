@@ -4,9 +4,13 @@
 #include <cuda_runtime.h>   //for CUDA runtime API
 #include <helper_cuda.h>    //for checkCudaError macro
 #include <helper_timer.h>   //for CUDA SDK timers
+#include <mma.h>
+
+using namespace nvcuda;
 
 #define BD 1024   //x-dimension of thread blocks
 
+const int TILE_WIDTH = 32;
 
 
 //simple CPU implementation of matrix-matrix product
@@ -20,131 +24,41 @@ void cpuMatrixProduct(int m, int k, int n, const float *A, const float *B, float
         for(index_k=0; index_k<k; index_k++) {
             for(index_n=0; index_n<n; index_n++) {
                 C[index_m*n + index_n] += A[index_m*k + index_k] * B[index_k*n + index_n];
-
             }
-
         }
-
     }
-
 }
+__global__ void matrixMulti(float* A_d, float* B_d, float* C_d, int m, int k, int n)
+{
+    __shared__ float ds_A[TILE_WIDTH][TILE_WIDTH];
+    __shared__ float ds_B[TILE_WIDTH][TILE_WIDTH];
 
+    int col = blockIdx.x*blockDim.x + threadIdx.x; //la colonna di mio interesse
+    int row = blockIdx.y*blockDim.y + threadIdx.y; //la riga di mio interesse
 
+    int tx = threadIdx.x; //dove devo lavorare io sulla matrice ausiliaria aka i
+    int ty = threadIdx.y; //dove devo lavorare io sulla matrice ausiliaria aka j
+    float sum = 0.0;
 
-__device__ void warpReduce(volatile float *sdata, int tid) {
-    sdata[tid] += sdata[tid+16];
-    sdata[tid] += sdata[tid+8];
-    sdata[tid] += sdata[tid+4];
-    sdata[tid] += sdata[tid+2];
-    sdata[tid] += sdata[tid+1];
-}
-
-
-
-template <unsigned int THD> __global__ void reduce(int nt, float *g_idata, float *g_odata) {
-    //auxiliary variables
-    unsigned int tid = threadIdx.x;
-    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
-    unsigned int gridSize = blockDim.x * gridDim.x;
-    //unsigned int i = ( blockIdx.x + blockIdx.y * gridDim.x ) * blockDim.x + threadIdx.x;
-    //unsigned int gridSize = blockDim.x * gridDim.x * gridDim.y;
-
-    //other shared memory
-    extern __shared__ float sdata[BD];
-    sdata[tid] = 0.0;
-
-    while(i<nt) {
-        sdata[tid] += g_idata[i];
-        i += gridSize;
-    }
-    __syncthreads();
-
-    //do reduction in shared memory
-    if(THD >= 1024) { if(tid < 512) { sdata[tid] += sdata[tid+512]; } __syncthreads(); }
-    if(THD >= 512) { if(tid < 256) { sdata[tid] += sdata[tid+256]; } __syncthreads(); }
-    if(THD >= 256) { if(tid < 128) { sdata[tid] += sdata[tid+128]; } __syncthreads(); }
-    if(THD >= 128) { if(tid < 64) { sdata[tid] += sdata[tid+64]; } __syncthreads(); }
-    if(THD >= 64) { if(tid < 32) { sdata[tid] += sdata[tid+32]; } __syncthreads(); }
-
-    if(tid<32)
-        warpReduce(sdata, tid);
-
-    //write result for this block to global memory
-    if(tid == 0)
-        g_odata[ blockIdx.x ] += sdata[0];
-
-}
-
-
-
-__device__ void do_gpu_reduce(int nt, float *g_idata, float *g_odata) {
-    //auxiliary variables
-    const int shmem_size = BD*sizeof(float);
-    int nblocks = (nt+BD-1)/BD;
-    //if(nblocks > max_blocks) nblocks = max_blocks;
-
-    switch(BD) {
-        case 1024:
-            reduce<1024><<<nblocks, 1024, shmem_size, 0>>>(nt, g_idata, g_odata);
-            break;
-        case 512:
-            reduce<512><<<nblocks, 512, shmem_size, 0>>>(nt, g_idata, g_odata);
-            break;
-        case 256:
-            reduce<256><<<nblocks, 256, shmem_size, 0>>>(nt, g_idata, g_odata);
-            break;
-        case 128:
-            reduce<128><<<nblocks, 128, shmem_size, 0>>>(nt, g_idata, g_odata);
-            break;
-        case 64:
-            reduce<64><<<nblocks, 64, shmem_size, 0>>>(nt, g_idata, g_odata);
-            break;
-        default:
-            fprintf(stderr, "BD must be a power of 2 between 64 and 1024");
-
-    }
-
-    return;
-
-}
-
-
-
-//GPU implementation of matrix-matrix product
-//In this version, we use a block of threads foreach matrix C component and we divide A-rows and B-columns between multiple threads belonging to the same block.
-__global__ void gpuMatrixProduct(int m, int k, int n, const float *A, const float *B, float *C) {
-    //auxiiary variables
-    int index_k;    //index_k depends on tid (threadIdx.x); we loop on index_k in order to iterate on a single A-row and on a single B-column.
-    int tid = threadIdx.x;
-    int c_row = blockIdx.y;
-    int c_col = blockIdx.x;
-    float t = 0.0;  //partial result of matrix matrix product
-    if(c_row >= m || c_col >= n)  return; //case in which thread indexes exceed matrix C dimensions
-
-    //use of shared memory
-    extern __shared__ float aux[BD];
-    //matrix matrix product
-    for(index_k=tid; index_k<k; index_k += blockDim.x) { 
-        t += A[index_k+c_row*k] * B[c_col+index_k*n];
-    }
-    aux[tid] = t;
-    __syncthreads();
-
-    //reduction + write result to global memory
-    int nt = blockDim.x * gridDim.x * gridDim.y;   //n = total number of threads
-    do_gpu_reduce(nt, aux, C);
-
-    /*for(unsigned int s=1; s < blockDim.x; s*=2) {
-        int index = 2*s*tid;
-        if(index < blockDim.x)
-            aux[index] += aux[index+s];
+    for(int t=0; t<(k-1)/TILE_WIDTH+1; t++)
+    {
+        if(row<m && t*TILE_WIDTH+tx<k)
+            ds_A[ty][tx] = A_d[row*k + t*TILE_WIDTH+tx]; //e se cambiassi la disposizione della matrice A?
+            //e se un thread mettesse più dati in memoria condivisa? 
+            //in modo tale da non pagare il costo dello swap out dei thread per una singola istruzione
+        else
+            ds_A[ty][tx] = 0.0;
+        if(t*TILE_WIDTH+ty<k && col<n)
+            ds_B[ty][tx] = B_d[(t*TILE_WIDTH+ty)*n + col]; //e se cambiassi la disposizione della matrice B?
+        else
+            ds_B[ty][tx] = 0.0;
         __syncthreads();
-
+        for(int i=0; i<TILE_WIDTH; i++)
+            sum += ds_A[ty][i] * ds_B[i][tx];
+        __syncthreads();
     }
-    //write result to global memory
-    if(tid == 0)
-        C[c_col+c_row*n] += aux[0];*/
-
+    if(row<m && col<n)
+        C_d[col+row*n] += sum;
 }
 
 
@@ -159,12 +73,11 @@ int main(int argc, char **argv) {
         fprintf(stderr, "Usage: %s m k n exec_on_cpu\n", argv[0]);
         return -1;
     }
-
     int m = atoi(argv[1]);
     int k = atoi(argv[2]);
     int n = atoi(argv[3]);
     char *exec_cpu = argv[4];
-
+    
     //HOST MEMORY INITIALIZATION
     float *h_A = new float[m*k];    //matrix A
     float *h_B = new float[k*n];    //matrix B
@@ -175,27 +88,21 @@ int main(int argc, char **argv) {
     for(row=0; row<m; row++) {  //matrix A initialization
         for(col=0; col<k; col++) {
             idx = row*k + col;
-            //h_A[idx] = 100.0f * static_cast<float>(rand()) / RAND_MAX;
-            h_A[idx] = 1.0*(idx%10);
-
+            h_A[idx] = 100.0f * static_cast<float>(rand()) / RAND_MAX;
         }
 
     }
     for(row=0; row<k; row++) {  //matrix B initialization
         for(col=0; col<n; col++) {
             idx = row*n + col;
-            //h_B[idx] = 100.0f * static_cast<float>(rand()) / RAND_MAX;
-            h_B[idx] = 2.0*(idx%10);
-
+            h_B[idx] = 100.0f * static_cast<float>(rand()) / RAND_MAX;
         }
 
     }
     for(row=0; row<m; row++) {  //matrix C initialization
         for(col=0; col<n; col++) {
             idx = row*n + col;
-            //h_C[idx] = 100.0f * static_cast<float>(rand()) / RAND_MAX;
-            h_C[idx] = 1.0;
-
+            h_C[idx] = 100.0f * static_cast<float>(rand()) / RAND_MAX;
         }
 
     }
@@ -236,11 +143,12 @@ int main(int argc, char **argv) {
     }
 
     //CALCULATIONS ON THE GPU
-    const dim3 BLOCK_DIM(BD);
-    const dim3 GRID_DIM(n, m); //this way we have one thread-block foreach matrix C component.
+    dim3 dimGrid((m-1)/TILE_WIDTH+1, (n-1)/TILE_WIDTH+1, 1);
+    dim3 dimBlock(TILE_WIDTH, TILE_WIDTH, 1);
 
     timer->start();
-    gpuMatrixProduct<<<GRID_DIM, BLOCK_DIM>>>(m, k, n, d_A, d_B, d_C);
+    // gpuMatrixProduct<<<GRID_DIM, BLOCK_DIM>>>(m, k, n, d_A, d_B, d_C);
+    matrixMulti<<<dimGrid,dimBlock>>>(d_A, d_B, d_C, m, k, n);
     checkCudaErrors(cudaDeviceSynchronize());   //GPU kernel calls are asynchronous: cudaDeviceSynchronize() is useful to take the actual execution time on the GPU before timer->stop().
     timer->stop();
 
@@ -277,23 +185,6 @@ int main(int argc, char **argv) {
         //float corresponds to IEEE single precision, so unit roundoff is 1.19e-07.
         std::cout << "Max diff = " << diff << ";    Max relative diff = " << relativeDiff << std::endl;
         std::cout << "Err count = " << errCount << std::endl;
-
-        /*std::cout << "" << std::endl;
-        for(idx=0; idx<m*k; idx++) {
-            std::cout << "h_A[" << idx/k << "][" << idx%k << "] = " << h_A[idx] << std::endl;
-        }
-
-        std::cout << "" << std::endl;
-        for(idx=0; idx<n*k; idx++) {
-            std::cout << "h_B[" << idx/n << "][" << idx%n << "] = " << h_B[idx] << std::endl;
-        }
-
-        for(idx=0; idx<m*n; idx++) {
-            if(h_C[idx] - h_C_d[idx] > 0.1 || h_C[idx] - h_C_d[idx] < -0.1) {
-                printf("\nh_C[%d][%d] = %f\n", idx/n, idx%n, h_C[idx]);
-                printf("h_C_d[%d][%d] = %f\n", idx/n, idx%n, h_C_d[idx]);
-            }
-        }*/
     }
     
 

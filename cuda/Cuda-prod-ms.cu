@@ -60,7 +60,6 @@ __global__ void gpuMatrixProduct(int m, int k, int n, const float *A, const floa
     }
     aux[tid] = t;
     __syncthreads();
-
     //reduction    
     for(int s=BD/2; s>=32; s>>=1) {
         if(tid<s)
@@ -69,7 +68,6 @@ __global__ void gpuMatrixProduct(int m, int k, int n, const float *A, const floa
     }
     if(tid<16)
         reduce(aux, tid);
-
     //write result to global memory
     if(tid == 0)
         C[c_col+c_row*n] += aux[0];
