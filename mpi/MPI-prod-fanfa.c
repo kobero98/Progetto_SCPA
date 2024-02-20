@@ -636,7 +636,7 @@ int main(int argc, char **argv) {
 
         MPI_File_close(&file_result_MPI);
         MPI_File_close(&file_result_shadow_MPI);
-        printf("{\"processo\":%d,\"tempo_senza_creazione\":%f,\"tempo_totale\":%f,\"flop_senza_creazione\":%f,\"flop_totali\":%f},\n",
+        printf("{\"processo\":%d,\"tempo_senza_creazione\":%f,\"tempo_totale\":%f,\"flop_senza_creazione\":%f,\"flop_totali\":%f}\n",
             my_rank, end-start_after_create, end-start, flops, total_flops);
         fflush(stdout);
     }
@@ -708,7 +708,6 @@ int main(int argc, char **argv) {
     fclose(file_B);
     fclose(file_C);
 
-    //TODO: why does it crash?
     /*
     free_all(all_cart_coords, p);
     free_all(row_ranks_list, proc_dims[0]);

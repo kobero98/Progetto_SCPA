@@ -14,11 +14,8 @@
 #define CONVERTOC(i,j) 2*sizeof(int) + sizeof(int)*i*(proc_dims[0])*N + sizeof(int)*my_coord[0]*N + sizeof(int)*j*(proc_dims[1])+sizeof(int)*my_coord[1]
 
 
-//va valutato il giusto ordine di operazioni
-//e si possono fare meglio di n^3 operazioni?
-
 //i->j->z
-void calcolo_Computazionale1(float* localA,float* localB,float* localC,int m,int n,int k){
+void calcolo_Computazionale1(int m,int n,int k,const float* localA,const float* localB,float* localC){
     for(int i=0;i<m;i++){
         for(int j=0;j<n;j++){
             for(int z=0;z<k;z++){
@@ -28,7 +25,7 @@ void calcolo_Computazionale1(float* localA,float* localB,float* localC,int m,int
     }
 }
 //i->z->j
-void calcolo_Computazionale2(float* localA,float* localB,float* localC,int m,int n,int k){
+void calcolo_Computazionale2(int m,int n,int k,const float* localA,const float* localB,float* localC){
     for(int i=0;i<m;i++){
         for(int z=0;z<k;z++){
             for(int j=0;j<n;j++){
@@ -38,7 +35,7 @@ void calcolo_Computazionale2(float* localA,float* localB,float* localC,int m,int
     }
 }
 //j->i->z
-void calcolo_Computazionale3(float* localA,float* localB,float* localC,int m,int n,int k){
+void calcolo_Computazionale3(,int m,int n,int k,const float* localA,const float* localB,float* localC){
     for(int j=0;j<n;j++){
         for(int i=0;i<m;i++){
             for(int z=0;z<k;z++){
@@ -48,7 +45,7 @@ void calcolo_Computazionale3(float* localA,float* localB,float* localC,int m,int
     }
 }
 //j->z->i
-void calcolo_Computazionale4(float* localA,float* localB,float* localC,int m,int n,int k){
+void calcolo_Computazionale4(int m,int n,int k,const float* localA,const float* localB,float* localC){
     for(int j=0;j<n;j++){
         for(int z=0;z<k;z++){
             for(int i=0;i<m;i++){
@@ -58,7 +55,7 @@ void calcolo_Computazionale4(float* localA,float* localB,float* localC,int m,int
     }
 }
 //z->i->j
-void calcolo_Computazionale5(float* localA,float* localB,float* localC,int m,int n,int k){
+void calcolo_Computazionale5(int m,int n,int k,const float* localA,const float* localB,float* localC){
     for(int z=0;z<k;z++){
         for(int i=0;i<m;i++){
             for(int j=0;j<n;j++){
@@ -68,7 +65,7 @@ void calcolo_Computazionale5(float* localA,float* localB,float* localC,int m,int
     }
 }
 //z->j->i
-void calcolo_Computazionale6(float* localA,float* localB,float* localC,int m,int n,int k){
+void calcolo_Computazionale6(int m,int n,int k,const float* localA,const float* localB,float* localC){
     for(int z=0;z<k;z++){
         for(int j=0;j<n;j++){
             for(int i=0;i<m;i++){
@@ -273,13 +270,18 @@ int main(int argc, char **argv) {
 
     MPI_Barrier(comm_world_copy);
     startAftearCreate=MPI_Wtime();
+
     MPI_Barrier(comm_world_copy);
-    calcolo_Computazionale1(localA,localB,localC,m,n,K); //i->j->z
+    calcolo_Computazionale1(m,n,K,localA,localB,localC); //i->j->z
+
     MPI_Barrier(comm_world_copy);
     end=MPI_Wtime();
+    totalFlops = 2*K*N*M/(end-start);
+    flops = 2*K*N*M/(end-startAftearCreate);
     
     nomeFileCResult=(char*)malloc(strlen(argv[1])+6);
     sprintf(nomeFileCResult,"%s/CRes\0",argv[1]);
+
     //calcolo MAX DIFF
     if(p==1){
             //in caso sono in computazione singola scrivo i risultati sul file
@@ -308,7 +310,9 @@ int main(int argc, char **argv) {
 
             MPI_File_close(&fdR);
             MPI_File_close(&fdRShadow);
-            printf("{\"processo\":%d,\"tempo_senza_creazione\":%f,\"tempo_totale\":%f}\n",my_rank,end-startAftearCreate,end-start);
+            printf("{\"processo\":%d,\"tempo_senza_creazione\":%f,\"tempo_totale\":%f,\"flop_senza_creazione\":%f,\"flop_totali\":%f}\n",
+                my_rank, end-startAftearCreate, end-start, flops, totalFlops);
+
     }else{
         FileRes=fopen(nomeFileCResult,"r");
         if(FileRes!=NULL){
@@ -322,7 +326,6 @@ int main(int argc, char **argv) {
                 return 1;
             }
             double maxErr=0.0;
-            int countt=0;
             for(int i=0;i<m;i++){
                 for(int j=0;j<n;j++){
                     fseek(FileRes,CONVERTOC(i,j),SEEK_SET);
@@ -330,19 +333,19 @@ int main(int argc, char **argv) {
                     fread(&data,sizeof(float),1,FileRes);
                     if(maxErr<(localC[i*n+j] - data)){
                         maxErr = localC[i*n+j] - data;
-                        countt++;
                     }
                 }
             }
-            printf("{\"processo\":%d,\"max_Error\":%f,\"number_error\":%d,\"tempo_senza_creazione\":%f,\"tempo_totale\":%f},\n",my_rank,maxErr,countt,end-startAftearCreate,end-start);
+            printf("{\"processo\":%d,\"max_Error\":%f,\"tempo_senza_creazione\":%f,\"tempo_totale\":%f,\"flop_senza_creazione\":%f,\"flop_totali\":%f},\n",
+                my_rank, maxErr, end-startAftearCreate, end-start, flops, totalFlops);
         }else{
-            printf("{\"processo\":%d,\"tempo_senza_creazione\":%f,\"tempo_totale\":%f},\n",my_rank,end-startAftearCreate,end-start);
+            printf("{\"processo\":%d,\"tempo_senza_creazione\":%f,\"tempo_totale\":%f,\"flop_senza_creazione\":%f,\"flop_totali\":%f},\n",
+                my_rank, end-startAftearCreate, end-start, flops, totalFlops);
         }
     }  
     free(localA);
     free(localB);
     free(localC);
-    //printf("%d) tempo senza creazione=%f  tempo Totale=%fs\n",my_rank,end-startAftearCreate,end-start);
     MPI_Finalize();
     return 0;
 }
