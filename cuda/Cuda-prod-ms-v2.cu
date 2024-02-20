@@ -138,7 +138,7 @@ int main(int argc, char **argv) {
         timer->stop();
 
         cpuFlops = flopCnt / timer->getTime();
-        std::cout << "CPU time: " << timer->getTime() << " ms.  GFLOPS: " << cpuFlops << std::endl;
+        std::cout << "\"CPU_time\": " << timer->getTime() << ",  \"CPU_GFLOPS\":" << cpuFlops <<","<<std::endl;
         timer->reset();
     }
 
@@ -153,7 +153,7 @@ int main(int argc, char **argv) {
     timer->stop();
 
     gpuFlops = flopCnt / timer->getTime();
-    std::cout << "GPU time: " << timer->getTime() << " ms.  GFLOPS: " << gpuFlops << std::endl;
+    std::cout << "\"GPU_time\": " << timer->getTime() << ",  \"GFLOPS\":" << gpuFlops <<std::endl;
 
     if(exec_cpu[0] == 'y') {
         //download the resulting matrix d_C from the device and store it in h_C_d.
@@ -183,8 +183,8 @@ int main(int argc, char **argv) {
         }
         //relativeDiff should be as close as possible to unit roundoff.
         //float corresponds to IEEE single precision, so unit roundoff is 1.19e-07.
-        std::cout << "Max diff = " << diff << ";    Max relative diff = " << relativeDiff << std::endl;
-        std::cout << "Err count = " << errCount << std::endl;
+        std::cout << ",\"Max_diff\":" << diff << ",\"Max_relative_diff\": " << relativeDiff << std::endl;
+        std::cout << ",\"SPEED_UP\":" << gpuFlops/cpuFlops << std::endl;
     }
     
 

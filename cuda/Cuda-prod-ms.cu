@@ -158,7 +158,7 @@ int main(int argc, char **argv) {
         timer->stop();
 
         cpuFlops = flopCnt / timer->getTime();
-        std::cout << "CPU time: " << timer->getTime() << " ms.  GFLOPS: " << cpuFlops << std::endl;
+        std::cout << "\"CPU_time\": " << timer->getTime() << ",  \"CPU_GFLOPS\":" << cpuFlops <<","<<std::endl;        
         timer->reset();
     }
 
@@ -202,25 +202,10 @@ int main(int argc, char **argv) {
         }
         //relativeDiff should be as close as possible to unit roundoff.
         //float corresponds to IEEE single precision, so unit roundoff is 1.19e-07.
-        std::cout << "Max diff = " << diff << ";    Max relative diff = " << relativeDiff << std::endl;
-        std::cout << "Err count = " << errCount << std::endl;
+        std::cout << ",\"Max_diff\":" << diff << ",\"Max_relative_diff\": " << relativeDiff << std::endl;
+        std::cout << ",\"SPEED_UP\":" << gpuFlops/cpuFlops << std::endl;
 
-        /*std::cout << "" << std::endl;
-        for(idx=0; idx<m*k; idx++) {
-            std::cout << "h_A[" << idx/k << "][" << idx%k << "] = " << h_A[idx] << std::endl;
-        }
-
-        std::cout << "" << std::endl;
-        for(idx=0; idx<n*k; idx++) {
-            std::cout << "h_B[" << idx/n << "][" << idx%n << "] = " << h_B[idx] << std::endl;
-        }
-
-        for(idx=0; idx<m*n; idx++) {
-            if(h_C[idx] - h_C_d[idx] > 0.1 || h_C[idx] - h_C_d[idx] < -0.1) {
-                printf("\nh_C[%d][%d] = %f\n", idx/n, idx%n, h_C[idx]);
-                printf("h_C_d[%d][%d] = %f\n", idx/n, idx%n, h_C_d[idx]);
-            }
-        }*/
+        
     }
     
 
