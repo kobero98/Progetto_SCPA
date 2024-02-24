@@ -35,7 +35,7 @@ void calcolo_Computazionale2(int m,int n,int k,const float* localA,const float* 
     }
 }
 //j->i->z
-void calcolo_Computazionale3(,int m,int n,int k,const float* localA,const float* localB,float* localC){
+void calcolo_Computazionale3(int m,int n,int k,const float* localA,const float* localB,float* localC){
     for(int j=0;j<n;j++){
         for(int i=0;i<m;i++){
             for(int z=0;z<k;z++){
@@ -124,7 +124,9 @@ int main(int argc, char **argv) {
     MPI_File fdR;
     MPI_File fdRShadow;
     int openResult; //variabile per verificare la corretta apertura del file
-    
+    double flops;
+    double totalFlops;
+
     FILE *FileRes;
     FILE *cFile;
     FILE *aFile;
@@ -234,6 +236,9 @@ int main(int argc, char **argv) {
     float* localB = (float *) malloc(sizeof(float)*n*K);
     float* localC = (float *) malloc(sizeof(float)*n*m);
     //inizializzo localA
+     if(!(local_A && local_B && local_C))
+        fprintf(stderr, "non riesco a vare allocazione %d %d %d\n",m,K,n);
+        MPI_Abort(comm_world_copy, EXIT_FAILURE);
    
     //MPI_File_seek(fdA,(my_coord[0])*K*sizeof(int),MPI_SEEK_CUR);
     for(int i=0;i<m;i++){ 
