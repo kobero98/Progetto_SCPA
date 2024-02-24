@@ -236,9 +236,10 @@ int main(int argc, char **argv) {
     float* localB = (float *) malloc(sizeof(float)*n*K);
     float* localC = (float *) malloc(sizeof(float)*n*m);
     //inizializzo localA
-     if(!(local_A && local_B && local_C))
+     if(!(localA && localB && localC)){
         fprintf(stderr, "non riesco a vare allocazione %d %d %d\n",m,K,n);
         MPI_Abort(comm_world_copy, EXIT_FAILURE);
+     }
    
     //MPI_File_seek(fdA,(my_coord[0])*K*sizeof(int),MPI_SEEK_CUR);
     for(int i=0;i<m;i++){ 

@@ -35,7 +35,6 @@ def grafico_kobero(lista_dizionari,name,metrica):
     data = pd.DataFrame(lista_dizionari)
     if(metrica=="Speed_up"):
         data=data[data["K"]<5000]
-    print(data)
     for p, group in data.groupby('processi'):
         plt.plot(group['K'], group[metrica], label=f'process={p}')
     plt.grid(True)
@@ -98,9 +97,8 @@ def main():
                 valori_medi = calcola_valori_medi("fanfa-result/result-"+str(dim)+"-"+str(kb)+"-"+str(p),max_values=max_values)
                 app["result"]=valori_medi
                 app["flop_totale"]=(2*dim*dim*dim)/valori_medi["tempo_totale"]
-                app["flop_senza_creazione"]=(2*dim*dim*dim)/valori_medi["tempo_senza_creazione"]
+                app["Gflop"]=((2*15000*15000*dim)/valori_medi["tempo_senza_creazione"])/1000000000                
                 app["Speed_up"]=valoreSing["tempo_senza_creazione"]/valori_medi["tempo_senza_creazione"]
-                print(valori_medi["tempo_senza_creazione"],valoreSing["tempo_senza_creazione"])
                 fanfa_list_square.append(app)
     fanfa_list_rect=[]
     for dim in [32,64,128]:
@@ -127,7 +125,7 @@ def main():
                 valori_medi = calcola_valori_medi("fanfa-result/result-"+str(dim)+"-"+str(kb)+"-"+str(p),max_values=max_values)
                 app["result"]=valori_medi
                 app["flop_totale"]=(2*15000*15000*dim)/valori_medi["tempo_totale"]
-                app["flop_senza_creazione"]=(2*15000*15000*dim)/valori_medi["tempo_senza_creazione"]
+                app["Gflop"]=((2*15000*15000*dim)/valori_medi["tempo_senza_creazione"])/1000000000
                 app["Speed_up"]=valoreSing["tempo_senza_creazione"]/valori_medi["tempo_senza_creazione"]
                 fanfa_list_rect.append(app)
     kobero_list_square=[]
@@ -153,11 +151,11 @@ def main():
             valori_medi = calcola_valori_medi("kobero-result/result-"+str(dim)+"-"+str(p),max_values=max_values)
             app["result"]=valori_medi
             app["flop_totale"]=(2*dim*dim*dim)/valori_medi["tempo_totale"]
-            app["flop_senza_creazione"]=(2*dim*dim*dim)/valori_medi["tempo_senza_creazione"]
+            app["Gflop"]=((2*15000*15000*dim)/valori_medi["tempo_senza_creazione"])/1000000000
             app["Speed_up"]=valoreSing["tempo_senza_creazione"]/valori_medi["tempo_senza_creazione"]     
             kobero_list_square.append(app)
     kobero_list_rect=[]
-    for dim in [32,64]:
+    for dim in [32,64,128]:
         try:
             with open(f"kobero-result/result-{dim}-1") as f:
                 valoreSing = json.load(f)
@@ -179,17 +177,19 @@ def main():
             valori_medi = calcola_valori_medi("kobero-result/result-"+str(dim)+"-"+str(p),max_values=max_values)
             app["result"]=valori_medi
             app["flop_totale"]=(2*15000*15000*dim)/valori_medi["tempo_totale"]
-            app["flop_senza_creazione"]=(2*15000*15000*dim)/valori_medi["tempo_senza_creazione"]
+            app["Gflop"]=((2*15000*15000*dim)/valori_medi["tempo_senza_creazione"])/1000000000
             app["Speed_up"]=valori_medi["tempo_senza_creazione"]/valoreSing["tempo_senza_creazione"]         
             kobero_list_rect.append(app)
-    grafici_fanfa_confronto_kb(fanfa_list_square,"square",'flop_senza_creazione')
-    grafici_fanfa_confronto_kb(fanfa_list_rect,"rect","flop_senza_creazione")
+    grafici_fanfa_confronto_kb(fanfa_list_square,"square",'Gflop')
+    grafici_fanfa_confronto_kb(fanfa_list_rect,"rect","Gflop")
     grafici_fanfa_confronto_kb(fanfa_list_square,"square","Speed_up")
     grafici_fanfa_confronto_kb(fanfa_list_rect,"rect","Speed_up")
 
-    grafico_kobero(kobero_list_square,"square","flop_senza_creazione")
+    grafico_kobero(kobero_list_square,"square","Gflop")
     grafico_kobero(kobero_list_square,"square","Speed_up")
 
+    grafico_kobero(kobero_list_rect,"rectangular","Gflop")
+    grafico_kobero(kobero_list_rect,"rectangular","Speed_up")
 
 
 if __name__ == "__main__":
