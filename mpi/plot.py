@@ -1,6 +1,29 @@
 import json
 import matplotlib.pyplot as plt
 import pandas as pd
+def grafico_confronto(l1,l2,name,metrica):
+    data1= pd.DataFrame(l1)
+    if(metrica=="Speed_up" or metrica=="relative_err"):
+        data1=data1[data1["K"]<5000]
+    data1 = data1[data1['processi'] == 20]  # Filtraggio dei dati per il valore di 'processi'
+    plt.plot(data1["K"],data1[metrica], label=f'divisione di C')
+
+    data2= pd.DataFrame(l2)
+    if(metrica=="Speed_up" or metrica=="relative_err"):
+        data2=data2[data2["K"]<5000]
+    data2 = data2[data2['processi'] == 20]  # Filtraggio dei dati per il valore di 'processi'
+    for kb, group in data2.groupby('kb'):
+        plt.plot(group['K'], group[metrica], label=f'divisione di A kb={kb}')     
+    plt.grid(True)
+    plt.xlabel('K')
+    plt.ylabel(metrica)
+    plt.title(f'Andamento '+metrica)
+    plt.legend()
+    nome_file = f"image/confronto_{name}_{metrica}.svg"
+    plt.savefig(nome_file, format='svg')
+    nome_file = f"image/confronto_{name}_{metrica}.jpeg"
+    plt.savefig(nome_file, format='jpeg')
+    plt.close()
 
 def grafici_fanfa_confronto_kb(lista_dizionari,name,metrica):
     processi = set()  # Insieme per memorizzare tutti i valori di 'processi'
@@ -10,7 +33,7 @@ def grafici_fanfa_confronto_kb(lista_dizionari,name,metrica):
     for p in processi:
         # Creazione del DataFrame per questo valore di 'processi'
         data = pd.DataFrame(lista_dizionari)
-        if(metrica=="Speed_up"):
+        if(metrica=="Speed_up" or metrica=="relative_err"):
             data=data[data["K"]<5000]
         data = data[data['processi'] == p]  # Filtraggio dei dati per il valore di 'processi'
         
@@ -33,7 +56,7 @@ def grafico_kobero(lista_dizionari,name,metrica):
         processi.add(dizionario['processi'])
     # Creazione del DataFrame per questo valore di 'processi'
     data = pd.DataFrame(lista_dizionari)
-    if(metrica=="Speed_up"):
+    if(metrica=="Speed_up" or metrica=="relative_err"):
         data=data[data["K"]<5000]
     for p, group in data.groupby('processi'):
         plt.plot(group['K'], group[metrica], label=f'process={p}')
@@ -96,8 +119,12 @@ def main():
                     }
                 valori_medi = calcola_valori_medi("fanfa-result/result-"+str(dim)+"-"+str(kb)+"-"+str(p),max_values=max_values)
                 app["result"]=valori_medi
+                if "relative_err" in valori_medi.keys():
+                    app["relative_err"]=valori_medi["relative_err"]
+                else:
+                    app["relative_err"]=0
                 app["flop_totale"]=(2*dim*dim*dim)/valori_medi["tempo_totale"]
-                app["Gflop"]=((2*15000*15000*dim)/valori_medi["tempo_senza_creazione"])/1000000000                
+                app["Gflop"]=((2*dim*dim*dim)/valori_medi["tempo_senza_creazione"])/1000000000                
                 app["Speed_up"]=valoreSing["tempo_senza_creazione"]/valori_medi["tempo_senza_creazione"]
                 fanfa_list_square.append(app)
     fanfa_list_rect=[]
@@ -124,6 +151,10 @@ def main():
                     }
                 valori_medi = calcola_valori_medi("fanfa-result/result-"+str(dim)+"-"+str(kb)+"-"+str(p),max_values=max_values)
                 app["result"]=valori_medi
+                if "relative_err" in valori_medi.keys():
+                    app["relative_err"]=valori_medi["relative_err"]
+                else:
+                    app["relative_err"]=0
                 app["flop_totale"]=(2*15000*15000*dim)/valori_medi["tempo_totale"]
                 app["Gflop"]=((2*15000*15000*dim)/valori_medi["tempo_senza_creazione"])/1000000000
                 app["Speed_up"]=valoreSing["tempo_senza_creazione"]/valori_medi["tempo_senza_creazione"]
@@ -150,8 +181,12 @@ def main():
                     }
             valori_medi = calcola_valori_medi("kobero-result/result-"+str(dim)+"-"+str(p),max_values=max_values)
             app["result"]=valori_medi
+            if "relative_err" in valori_medi.keys():
+                app["relative_err"]=valori_medi["relative_err"]
+            else:
+                app["relative_err"]=0
             app["flop_totale"]=(2*dim*dim*dim)/valori_medi["tempo_totale"]
-            app["Gflop"]=((2*15000*15000*dim)/valori_medi["tempo_senza_creazione"])/1000000000
+            app["Gflop"]=((2*dim*dim*dim)/valori_medi["tempo_senza_creazione"])/1000000000
             app["Speed_up"]=valoreSing["tempo_senza_creazione"]/valori_medi["tempo_senza_creazione"]     
             kobero_list_square.append(app)
     kobero_list_rect=[]
@@ -169,27 +204,40 @@ def main():
             max_values = {
                         "max_Error": [],
                         "number_error": [],
+                        "relative_err":[],
                         "tempo_senza_creazione": [],
                         "tempo_totale": [],
                         "flop_senza_creazione": [],
                         "flop_totali": []
                     }
             valori_medi = calcola_valori_medi("kobero-result/result-"+str(dim)+"-"+str(p),max_values=max_values)
+            if "relative_err" in valori_medi.keys():
+                app["relative_err"]=valori_medi["relative_err"]
+            else:
+                app["relative_err"]=0
             app["result"]=valori_medi
             app["flop_totale"]=(2*15000*15000*dim)/valori_medi["tempo_totale"]
             app["Gflop"]=((2*15000*15000*dim)/valori_medi["tempo_senza_creazione"])/1000000000
-            app["Speed_up"]=valori_medi["tempo_senza_creazione"]/valoreSing["tempo_senza_creazione"]         
+            app["Speed_up"]=valoreSing["tempo_senza_creazione"]/valori_medi["tempo_senza_creazione"]         
             kobero_list_rect.append(app)
     grafici_fanfa_confronto_kb(fanfa_list_square,"square",'Gflop')
-    grafici_fanfa_confronto_kb(fanfa_list_rect,"rect","Gflop")
+    grafici_fanfa_confronto_kb(fanfa_list_rect,"rectangular","Gflop")
     grafici_fanfa_confronto_kb(fanfa_list_square,"square","Speed_up")
-    grafici_fanfa_confronto_kb(fanfa_list_rect,"rect","Speed_up")
+    grafici_fanfa_confronto_kb(fanfa_list_rect,"rectangular","Speed_up")
 
     grafico_kobero(kobero_list_square,"square","Gflop")
     grafico_kobero(kobero_list_square,"square","Speed_up")
 
     grafico_kobero(kobero_list_rect,"rectangular","Gflop")
     grafico_kobero(kobero_list_rect,"rectangular","Speed_up")
+
+    grafico_confronto(kobero_list_square,fanfa_list_square,"square","Gflop")
+    grafico_confronto(kobero_list_rect,fanfa_list_rect,"rectangular","Gflop")
+    grafico_confronto(kobero_list_square,fanfa_list_square,"square","Speed_up")
+    grafico_confronto(kobero_list_rect,fanfa_list_rect,"rectangular","Speed_up")
+    
+    grafici_fanfa_confronto_kb(fanfa_list_square,"square","relative_err")
+    grafici_fanfa_confronto_kb(fanfa_list_rect,"rectangular","relative_err")
 
 
 if __name__ == "__main__":

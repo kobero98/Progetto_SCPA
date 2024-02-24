@@ -9,7 +9,7 @@
 #define YES NO+1
 #define DEBUG
 
-#define CONVERTOA(i,j) 2*sizeof(int) + sizeof(int)*i*(proc_dims[0])*N + sizeof(int)*my_coord[0]*N + sizeof(int)*j
+#define CONVERTOA(i,j) 2*sizeof(int) + sizeof(int)*i*(proc_dims[0])*K + sizeof(int)*my_coord[0]*K + sizeof(int)*j
 #define CONVERTOB(i,j) 2*sizeof(int) + sizeof(int)*i*N + sizeof(int)*j*(proc_dims[1])+ sizeof(int)*my_coord[1]
 #define CONVERTOC(i,j) 2*sizeof(int) + sizeof(int)*i*(proc_dims[0])*N + sizeof(int)*my_coord[0]*N + sizeof(int)*j*(proc_dims[1])+sizeof(int)*my_coord[1]
 
@@ -320,6 +320,7 @@ int main(int argc, char **argv) {
                 my_rank, end-startAftearCreate, end-start, flops, totalFlops);
 
     }else{
+        
         FileRes=fopen(nomeFileCResult,"r");
         if(FileRes!=NULL){
             //controllo la differenza solo se esiste il file dei risultati 
@@ -332,6 +333,7 @@ int main(int argc, char **argv) {
                 return 1;
             }
             double maxErr=0.0;
+            double relative_err = 0.0;
             for(int i=0;i<m;i++){
                 for(int j=0;j<n;j++){
                     fseek(FileRes,CONVERTOC(i,j),SEEK_SET);
@@ -339,14 +341,15 @@ int main(int argc, char **argv) {
                     fread(&data,sizeof(float),1,FileRes);
                     if(maxErr<(localC[i*n+j] - data)){
                         maxErr = localC[i*n+j] - data;
+                        relative_err = maxErr/data;
                     }
                 }
             }
-            printf("{\"processo\":%d,\"max_Error\":%f,\"tempo_senza_creazione\":%f,\"tempo_totale\":%f,\"flop_senza_creazione\":%f,\"flop_totali\":%f},\n",
-                my_rank, maxErr, end-startAftearCreate, end-start, flops, totalFlops);
+           printf("{\"processo\":%d,\"max_Error\":%f,\"relative_err\":%lf,\"tempo_senza_creazione\":%f,\"tempo_totale\":%f,\"flop_senza_creazione\":%f,\"flop_totali\":%f},\n",
+               my_rank, maxErr,relative_err, end-startAftearCreate, end-start, flops, totalFlops);
         }else{
             printf("{\"processo\":%d,\"tempo_senza_creazione\":%f,\"tempo_totale\":%f,\"flop_senza_creazione\":%f,\"flop_totali\":%f},\n",
-                my_rank, end-startAftearCreate, end-start, flops, totalFlops);
+               my_rank, end-startAftearCreate, end-start, flops, totalFlops);
         }
     }  
     free(localA);
