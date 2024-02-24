@@ -13,17 +13,19 @@ def grafici_fanfa_confronto_kb(lista_dizionari,name,metrica):
         if(metrica=="Speed_up"):
             data=data[data["K"]<5000]
         data = data[data['processi'] == p]  # Filtraggio dei dati per il valore di 'processi'
-
+        
         # Creazione dei grafici per questo valore di 'processi'
         for kb, group in data.groupby('kb'):
             plt.plot(group['K'], group[metrica], label=f'kb={kb}')
-
+        plt.grid(True)
         plt.xlabel('K')
         plt.ylabel('flop_senza_creazione')
         plt.title(f'Andamento dei flop_senza_creazione per p={p}')
         plt.legend()
         nome_file = f"image/fanfa_{name}_{metrica}_kb_p{p}.svg"
         plt.savefig(nome_file, format='svg')
+        nome_file = f"image/fanfa_{name}_{metrica}_kb_p{p}.jpeg"
+        plt.savefig(nome_file, format='jpeg')
         plt.close()
 def calcola_valori_medi(file_path,max_values):
     # Carica i dati dal file
