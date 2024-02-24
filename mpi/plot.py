@@ -19,14 +19,36 @@ def grafici_fanfa_confronto_kb(lista_dizionari,name,metrica):
             plt.plot(group['K'], group[metrica], label=f'kb={kb}')
         plt.grid(True)
         plt.xlabel('K')
-        plt.ylabel('flop_senza_creazione')
-        plt.title(f'Andamento dei flop_senza_creazione per p={p}')
+        plt.ylabel(metrica)
+        plt.title(f'Andamento '+metrica)
         plt.legend()
         nome_file = f"image/fanfa_{name}_{metrica}_kb_p{p}.svg"
         plt.savefig(nome_file, format='svg')
         nome_file = f"image/fanfa_{name}_{metrica}_kb_p{p}.jpeg"
         plt.savefig(nome_file, format='jpeg')
         plt.close()
+def grafico_kobero(lista_dizionari,name,metrica):
+    processi = set()  # Insieme per memorizzare tutti i valori di 'processi'
+    for dizionario in lista_dizionari:
+        processi.add(dizionario['processi'])
+    # Creazione del DataFrame per questo valore di 'processi'
+    data = pd.DataFrame(lista_dizionari)
+    if(metrica=="Speed_up"):
+        data=data[data["K"]<5000]
+    print(data)
+    for p, group in data.groupby('processi'):
+        plt.plot(group['K'], group[metrica], label=f'process={p}')
+    plt.grid(True)
+    plt.xlabel('K')
+    plt.ylabel(metrica)
+    plt.title(f'Andamento '+metrica)
+    plt.legend()
+    nome_file = f"image/kobero_{name}_{metrica}.svg"
+    plt.savefig(nome_file, format='svg')
+    nome_file = f"image/kobero_{name}_{metrica}.jpeg"
+    plt.savefig(nome_file, format='jpeg')
+    plt.close()
+
 def calcola_valori_medi(file_path,max_values):
     # Carica i dati dal file
     with open(file_path) as f:
@@ -77,7 +99,8 @@ def main():
                 app["result"]=valori_medi
                 app["flop_totale"]=(2*dim*dim*dim)/valori_medi["tempo_totale"]
                 app["flop_senza_creazione"]=(2*dim*dim*dim)/valori_medi["tempo_senza_creazione"]
-                app["Speed_up"]=valori_medi["tempo_senza_creazione"]/valoreSing["tempo_senza_creazione"]
+                app["Speed_up"]=valoreSing["tempo_senza_creazione"]/valori_medi["tempo_senza_creazione"]
+                print(valori_medi["tempo_senza_creazione"],valoreSing["tempo_senza_creazione"])
                 fanfa_list_square.append(app)
     fanfa_list_rect=[]
     for dim in [32,64,128]:
@@ -105,7 +128,7 @@ def main():
                 app["result"]=valori_medi
                 app["flop_totale"]=(2*15000*15000*dim)/valori_medi["tempo_totale"]
                 app["flop_senza_creazione"]=(2*15000*15000*dim)/valori_medi["tempo_senza_creazione"]
-                app["Speed_up"]=valori_medi["tempo_senza_creazione"]/valoreSing["tempo_senza_creazione"]       
+                app["Speed_up"]=valoreSing["tempo_senza_creazione"]/valori_medi["tempo_senza_creazione"]
                 fanfa_list_rect.append(app)
     kobero_list_square=[]
     for dim in [500,750,1000,2000,5000,10000]:
@@ -131,7 +154,7 @@ def main():
             app["result"]=valori_medi
             app["flop_totale"]=(2*dim*dim*dim)/valori_medi["tempo_totale"]
             app["flop_senza_creazione"]=(2*dim*dim*dim)/valori_medi["tempo_senza_creazione"]
-            app["Speed_up"]=valori_medi["tempo_senza_creazione"]/valoreSing["tempo_senza_creazione"]     
+            app["Speed_up"]=valoreSing["tempo_senza_creazione"]/valori_medi["tempo_senza_creazione"]     
             kobero_list_square.append(app)
     kobero_list_rect=[]
     for dim in [32,64]:
@@ -163,6 +186,10 @@ def main():
     grafici_fanfa_confronto_kb(fanfa_list_rect,"rect","flop_senza_creazione")
     grafici_fanfa_confronto_kb(fanfa_list_square,"square","Speed_up")
     grafici_fanfa_confronto_kb(fanfa_list_rect,"rect","Speed_up")
+
+    grafico_kobero(kobero_list_square,"square","flop_senza_creazione")
+    grafico_kobero(kobero_list_square,"square","Speed_up")
+
 
 
 if __name__ == "__main__":
